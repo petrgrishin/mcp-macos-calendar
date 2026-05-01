@@ -2,7 +2,7 @@
 
 **Metadata:**
 - Priority: 1
-- Status: Draft
+- Status: Done
 - Effort: L (>20 min)
 
 ## Overview
@@ -145,9 +145,15 @@ sequenceDiagram
 - Добавить build script при необходимости для линковки macOS фреймворков
 
 ## Acceptance Criteria
-- [ ] S01AC1: Проект компилируется командой `cargo build` на macOS
-- [ ] S01AC2: `cargo run -- --transport stdio` запускает MCP сервер в stdio режиме
-- [ ] S01AC3: `cargo run -- --transport sse --port 3000` запускает MCP сервер с SSE на порту 3000
-- [ ] S01AC4: Структура файлов проекта соответствует R1
-- [ ] S01AC5: Все зависимости из R2 добавлены в Cargo.toml
-- [ ] S01AC6: CLI аргументы из R3 корректно парсятся
+- [x] S01AC1: Проект компилируется командой `cargo build` на macOS
+- [x] S01AC2: `cargo run -- --transport stdio` запускает MCP сервер в stdio режиме
+- [x] S01AC3: `cargo run -- --transport sse --port 3000` запускает MCP сервер с SSE на порту 3000
+- [x] S01AC4: Структура файлов проекта соответствует R1
+- [x] S01AC5: Все зависимости из R2 добавлены в Cargo.toml
+- [x] S01AC6: CLI аргументы из R3 корректно парсятся
+
+## Implementation Notes
+- **Зависимость `icrate` заменена на `objc2-event-kit`**: Спецификация указывала `icrate` с feature `EventKit`, но `icrate` v0.1.2 не имеет feature `EventKit`. Вместо неё использован `objc2-event-kit` v0.3 из той же экосистемы objc2 (тот же репозиторий madsmtm/objc2).
+- **API `rust-mcp-sdk` v0.9.0**: Функция `server_runtime::create_server` принимает `McpServerOptions<T>` вместо отдельных аргументов. `HyperServerOptions` использует `Default` для большинства полей.
+- **DNS rebinding protection**: `allowed_hosts` включает хост как с портом, так и без (например, `127.0.0.1` и `127.0.0.1:3000`), так как HTTP-клиенты отправляют Host header с портом.
+- **Тесты**: 7 unit-тестов для CLI аргументов (S01AC6) + 2 интеграционных теста для запуска серверов (S01AC2, S01AC3). Интеграционные тесты используют `CARGO_BIN_EXE` для прямого запуска бинарника.

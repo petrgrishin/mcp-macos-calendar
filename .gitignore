@@ -15,3 +15,10 @@
 specs/templates/*
 
 .ai-commit.md
+
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target

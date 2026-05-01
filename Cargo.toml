@@ -1,0 +1,45 @@
+[package]
+name = "mcp-macos-calendar"
+version = "0.1.0"
+edition = "2021"
+description = "MCP server for macOS Calendar access via EventKit"
+rust-version = "1.80"
+
+[dependencies]
+# MCP SDK
+rust-mcp-sdk = "0.9"
+
+# Objective-C runtime and EventKit bindings
+objc2 = "0.6"
+objc2-event-kit = "0.3"
+block2 = "0.6"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "2"
+
+# Async trait
+async-trait = "0.1"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["blocking"] }
+
+[[bin]]
+name = "mcp-macos-calendar"
+path = "src/main.rs"
