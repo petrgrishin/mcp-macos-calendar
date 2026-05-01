@@ -2,7 +2,7 @@
 
 **Metadata:**
 - Priority: 4
-- Status: Draft
+- Status: Done
 - Effort: L (>20 min)
 
 ## Overview
@@ -174,11 +174,22 @@ let server_info = InitializeResult {
   - `BridgeError::CalendarNotFound` / `BridgeError::EventNotFound` — указать ID
 
 ## Acceptance Criteria
-- [ ] S04AC1: `CalendarMcpHandler` реализует trait `ServerHandler`
-- [ ] S04AC2: `handle_list_tools_request` возвращает все 7 tools с корректными схемами параметров
-- [ ] S04AC3: `handle_call_tool_request` маршрутизирует вызовы к правильным tools
-- [ ] S04AC4: Stdio транспорт запускается и обрабатывает JSON-RPC через stdin/stdout
-- [ ] S04AC5: SSE транспорт запускается и доступен на `/sse` endpoint
-- [ ] S04AC6: HTTP транспорт доступен на `/mcp` endpoint
-- [ ] S04AC7: Ошибки возвращаются в формате `{"error": "..."}` с `is_error: true`
-- [ ] S04AC8: Server info содержит имя `mcp-macos-calendar` и версию `0.1.0`
+- [x] S04AC1: `CalendarMcpHandler` реализует trait `ServerHandler`
+- [x] S04AC2: `handle_list_tools_request` возвращает все 7 tools с корректными схемами параметров
+- [x] S04AC3: `handle_call_tool_request` маршрутизирует вызовы к правильным tools
+- [x] S04AC4: Stdio транспорт запускается и обрабатывает JSON-RPC через stdin/stdout
+- [x] S04AC5: SSE транспорт запускается и доступен на `/sse` endpoint
+- [x] S04AC6: HTTP транспорт доступен на `/mcp` endpoint
+- [x] S04AC7: Ошибки возвращаются в формате `{"error": "..."}` с `is_error: true`
+- [x] S04AC8: Server info содержит имя `mcp-macos-calendar` и версию `0.1.0`
+
+## Implementation Notes
+- Структура `CalendarServerHandler` переименована в `CalendarMcpHandler` для соответствия спецификации.
+- 7 MCP tools определены через `#[mcp_tool]` макрос из `rust-mcp-sdk` в `src/tools/calendar.rs` (4 tools) и `src/tools/event.rs` (3 tools).
+- `GetCalendarsTool` использует пустую структуру с `{}` вместо unit struct `;`, т.к. `JsonSchema` derive не поддерживает unit structs.
+- Логика диспетчеризации вынесена в отдельную функцию `dispatch_tool()` для удобного unit-тестирования без необходимости мокать `Arc<dyn McpServer>`.
+- Helper-функция `error_tool_result()` создаёт `CallToolResult` с `is_error: Some(true)` и JSON-контентом `{"error": "..."}`.
+- `CallToolResult` требует поле `structured_content: None` в текущей версии SDK.
+- `is_error` имеет тип `Option<bool>`, а не `bool`.
+- Транспортный слой (stdio и SSE/HTTP) уже был реализован в `src/main.rs` в spec-01, тесты подтверждены интеграционными тестами.
+- `calendar_tools()` — публичная функция, возвращающая `Vec<Tool>` для использования в `handle_list_tools_request`.

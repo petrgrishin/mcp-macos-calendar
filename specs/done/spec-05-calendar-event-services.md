@@ -2,7 +2,7 @@
 
 **Metadata:**
 - Priority: 5
-- Status: Draft
+- Status: Done
 - Effort: M (10-20 min)
 
 ## Overview
@@ -95,11 +95,18 @@ pub struct EventService<'a> {
 ```
 
 ## Acceptance Criteria
-- [ ] S05AC1: `CalendarService::list_calendars()` возвращает все календари macOS
-- [ ] S05AC2: `CalendarService::create_calendar()` с пустым title возвращает ошибку валидации
-- [ ] S05AC3: `CalendarService::delete_calendar()` с несуществующим ID возвращает CalendarNotFound
-- [ ] S05AC4: `EventService::create_event()` с невалидной датой возвращает InvalidDateFormat
-- [ ] S05AC5: `EventService::create_event()` со start_date > end_date возвращает ошибку
-- [ ] S05AC6: `EventService::list_events()` возвращает события за диапазон -30/+365 дней
-- [ ] S05AC7: `EventService::update_event()` обновляет только переданные поля
-- [ ] S05AC8: Сервисы корректно передают ошибки от Bridge в ServiceError
+- [x] S05AC1: `CalendarService::list_calendars()` возвращает все календари macOS
+- [x] S05AC2: `CalendarService::create_calendar()` с пустым title возвращает ошибку валидации
+- [x] S05AC3: `CalendarService::delete_calendar()` с несуществующим ID возвращает CalendarNotFound
+- [x] S05AC4: `EventService::create_event()` с невалидной датой возвращает InvalidDateFormat
+- [x] S05AC5: `EventService::create_event()` со start_date > end_date возвращает ошибку
+- [x] S05AC6: `EventService::list_events()` возвращает события за диапазон -30/+365 дней
+- [x] S05AC7: `EventService::update_event()` обновляет только переданные поля
+- [x] S05AC8: Сервисы корректно передают ошибки от Bridge в ServiceError
+
+## Implementation Notes
+- Интеграционные тесты (S05AC1-5) используют `try_create_bridge()` с graceful skip при отсутствии доступа к календарю в CI-среде
+- `ServiceError` определён в [`src/services/mod.rs`](src/services/mod.rs) с двумя вариантами: `Validation` и `Bridge(#[from] BridgeError)`
+- Валидация hex-цвета вынесена в приватную функцию `is_valid_hex_color()` в calendar_service
+- `EventService::list_events()` вычисляет диапазон -30/+365 дней через `chrono::Local::now()` при каждом вызове
+- `EventService::get_event()` проверяет принадлежность события к календарю через сравнение `event.calendar_id`

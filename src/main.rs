@@ -16,7 +16,7 @@ use rust_mcp_sdk::error::SdkResult;
 use rust_mcp_sdk::event_store::InMemoryEventStore;
 use rust_mcp_sdk::mcp_server::{hyper_server, server_runtime, HyperServerOptions, McpServerOptions};
 use rust_mcp_sdk::{McpServer, StdioTransport, ToMcpServerHandler, TransportOptions};
-use server::{create_server_info, CalendarServerHandler};
+use server::{create_server_info, CalendarMcpHandler};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -48,7 +48,7 @@ async fn run_stdio() -> SdkResult<()> {
     tracing::info!("Using stdio transport");
     let server_info = create_server_info();
     let transport = StdioTransport::new(TransportOptions::default())?;
-    let handler = CalendarServerHandler::default();
+    let handler = CalendarMcpHandler::default();
     let server = server_runtime::create_server(McpServerOptions {
         server_details: server_info,
         transport,
@@ -68,7 +68,7 @@ async fn run_sse(config: &ServerConfig) -> SdkResult<()> {
         config.sse_endpoint(),
     );
     let server_info = create_server_info();
-    let handler = CalendarServerHandler::default();
+    let handler = CalendarMcpHandler::default();
     let server = hyper_server::create_server(
         server_info,
         handler.to_mcp_server_handler(),

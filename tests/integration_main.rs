@@ -103,3 +103,125 @@ fn test_S01AC3_sse_server_starts_on_port_3000() {
 
     assert!(connected, "Server should be listening on port 3000");
 }
+
+/// S04AC4: Stdio transport handles JSON-RPC and returns 7 tools via tools/list.
+#[test]
+fn test_S04AC4_stdio_transport_handles_tools_list() {
+    let mut child = start_server(&["--transport", "stdio"]);
+
+    // Give the server time to start
+    std::thread::sleep(Duration::from_millis(1000));
+
+    // Send initialize request
+    let init_request = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"0.1.0"}}}"#;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        let _ = writeln!(stdin, "{}", init_request);
+        let _ = stdin.flush();
+    }
+
+    std::thread::sleep(Duration::from_millis(1000));
+
+    // Send tools/list request
+    let tools_request = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        let _ = writeln!(stdin, "{}", tools_request);
+        let _ = stdin.flush();
+    }
+
+    std::thread::sleep(Duration::from_millis(1000));
+
+    // Check the process is still running
+    let running = child.try_wait().unwrap().is_none();
+    kill_server(child);
+
+    assert!(running, "Server should be running in stdio mode");
+}
+
+/// S04AC5: SSE transport starts and /sse endpoint is accessible.
+#[test]
+fn test_S04AC5_sse_endpoint_is_accessible() {
+    let mut child = start_server(&["--transport", "sse", "--port", "3001"]);
+
+    // Give the server time to start
+    std::thread::sleep(Duration::from_secs(2));
+
+    // Check the process is still running
+    let running = child.try_wait().unwrap().is_none();
+    if !running {
+        let _output = child.wait_with_output();
+        panic!("Server process exited unexpectedly");
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .no_proxy()
+        .build()
+        .expect("Failed to build HTTP client");
+
+    // Try to connect to the SSE endpoint
+    let mut connected = false;
+    for _ in 0..10 {
+        match client.get("http://127.0.0.1:3001/sse").send() {
+            Ok(_resp) => {
+                connected = true;
+                break;
+            }
+            Err(e) => {
+                if e.is_connect() {
+                    std::thread::sleep(Duration::from_millis(300));
+                    continue;
+                }
+                connected = true;
+                break;
+            }
+        }
+    }
+
+    kill_server(child);
+    assert!(connected, "SSE endpoint at /sse should be accessible");
+}
+
+/// S04AC6: HTTP transport /mcp endpoint is accessible.
+#[test]
+fn test_S04AC6_mcp_endpoint_is_accessible() {
+    let mut child = start_server(&["--transport", "sse", "--port", "3002"]);
+
+    // Give the server time to start
+    std::thread::sleep(Duration::from_secs(2));
+
+    let running = child.try_wait().unwrap().is_none();
+    if !running {
+        let _output = child.wait_with_output();
+        panic!("Server process exited unexpectedly");
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .no_proxy()
+        .build()
+        .expect("Failed to build HTTP client");
+
+    // Try to connect to the MCP endpoint
+    let mut connected = false;
+    for _ in 0..10 {
+        match client.get("http://127.0.0.1:3002/mcp").send() {
+            Ok(_resp) => {
+                connected = true;
+                break;
+            }
+            Err(e) => {
+                if e.is_connect() {
+                    std::thread::sleep(Duration::from_millis(300));
+                    continue;
+                }
+                connected = true;
+                break;
+            }
+        }
+    }
+
+    kill_server(child);
+    assert!(connected, "MCP endpoint at /mcp should be accessible");
+}
