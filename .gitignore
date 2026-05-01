@@ -1,0 +1,17 @@
+# Ignore build artifacts and backup files
+
+/target
+**/*.rs.bk
+
+
+# macOS
+.DS_Store
+
+# Environment variables
+.env
+.roo/mcp.json
+.roomodes
+
+specs/templates/*
+
+.ai-commit.md
