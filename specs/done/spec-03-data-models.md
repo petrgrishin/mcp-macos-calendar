@@ -2,7 +2,7 @@
 
 **Metadata:**
 - Priority: 3
-- Status: Draft
+- Status: Done
 - Effort: M (10-20 min)
 
 ## Overview
@@ -120,10 +120,16 @@ pub struct ToolResponse<T: Serialize> {
 - Возвращать осмысленную ошибку при невалидном формате
 
 ## Acceptance Criteria
-- [ ] S03AC1: `Calendar` сериализуется в JSON с полями id, title, color, is_default, allows_modifications
-- [ ] S03AC2: `Event` сериализуется в JSON с датами в ISO8601 формате
-- [ ] S03AC3: `CalendarCreateRequest` десериализуется из JSON с опциональным полем color
-- [ ] S03AC4: `EventCreateRequest` десериализуется из JSON с опциональными полями
-- [ ] S03AC5: `EventUpdateRequest` десериализуется — все поля кроме calendar_id и event_id опциональны
-- [ ] S03AC6: `parse_flexible_date` корректно парсит все 3 формата дат
-- [ ] S03AC7: `parse_flexible_date` возвращает ошибку для невалидной даты
+- [x] S03AC1: `Calendar` сериализуется в JSON с полями id, title, color, is_default, allows_modifications
+- [x] S03AC2: `Event` сериализуется в JSON с датами в ISO8601 формате
+- [x] S03AC3: `CalendarCreateRequest` десериализуется из JSON с опциональным полем color
+- [x] S03AC4: `EventCreateRequest` десериализуется из JSON с опциональными полями
+- [x] S03AC5: `EventUpdateRequest` десериализуется — все поля кроме calendar_id и event_id опциональны
+- [x] S03AC6: `parse_flexible_date` корректно парсит все 3 формата дат
+- [x] S03AC7: `parse_flexible_date` возвращает ошибку для невалидной даты
+
+## Implementation Notes
+- `EventRequest` переименован в `EventCreateRequest` в соответствии со спецификацией. Обновлены все ссылки в `src/bridge/eventkit.rs`.
+- `EventUpdateRequest` дополнен обязательными полями `calendar_id` и `event_id` (ранее отсутствовали). Сигнатура `update_event` в bridge уже принимала `event_id` как отдельный параметр — структура теперь содержит оба идентификатора.
+- Добавлена структура `ToolResponse<T>` — generic MCP tool response wrapper с `#[serde(skip_serializing_if)]`.
+- `parse_flexible_date` реализована через последовательные попытки парсинга трёх форматов с использованием `chrono::NaiveDateTime::parse_from_str`.
