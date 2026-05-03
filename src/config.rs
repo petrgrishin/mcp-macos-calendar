@@ -53,6 +53,10 @@ pub struct CliArgs {
     /// Log level
     #[arg(long, default_value = "info")]
     pub log_level: String,
+
+    /// Run in read-only mode (disable mutation tools)
+    #[arg(long, default_value_t = false)]
+    pub read_only: bool,
 }
 
 /// Server configuration derived from CLI arguments.
@@ -62,6 +66,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub host: String,
     pub log_level: String,
+    pub read_only: bool,
 }
 
 impl From<CliArgs> for ServerConfig {
@@ -71,6 +76,7 @@ impl From<CliArgs> for ServerConfig {
             port: args.port,
             host: args.host,
             log_level: args.log_level,
+            read_only: args.read_only,
         }
     }
 }
@@ -149,6 +155,7 @@ mod tests {
             port: 3000,
             host: "0.0.0.0".to_string(),
             log_level: "debug".to_string(),
+            read_only: false,
         };
         assert_eq!(config.sse_endpoint(), "http://0.0.0.0:3000/sse");
         assert_eq!(config.mcp_endpoint(), "http://0.0.0.0:3000/mcp");
@@ -169,5 +176,31 @@ mod tests {
         assert_eq!(config.port, 3000);
         assert_eq!(config.host, "127.0.0.1");
         assert_eq!(config.log_level, "info");
+    }
+
+    // ------------------------------------------------------------------
+    // Spec 08 tests
+    // ------------------------------------------------------------------
+
+    /// S08AC1: CLI-флаг --read-only по умолчанию false.
+    #[test]
+    fn test_S08AC1_read_only_flag_default_false() {
+        let args = CliArgs::try_parse_from(["mcp-macos-calendar"]).unwrap();
+        assert!(!args.read_only, "read_only should default to false");
+    }
+
+    /// S08AC1: CLI-флаг --read-only парсится корректно.
+    #[test]
+    fn test_S08AC1_read_only_flag_parsed() {
+        let args = CliArgs::try_parse_from(["mcp-macos-calendar", "--read-only"]).unwrap();
+        assert!(args.read_only, "read_only should be true when --read-only is passed");
+    }
+
+    /// S08AC1: read_only передаётся из CliArgs в ServerConfig.
+    #[test]
+    fn test_S08AC1_read_only_propagated_to_server_config() {
+        let args = CliArgs::try_parse_from(["mcp-macos-calendar", "--read-only"]).unwrap();
+        let config = ServerConfig::from(args);
+        assert!(config.read_only, "ServerConfig.read_only should be true");
     }
 }

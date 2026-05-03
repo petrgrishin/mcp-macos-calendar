@@ -12,8 +12,9 @@ rust-mcp-sdk = "0.9"
 # Objective-C runtime and EventKit bindings
 objc2 = "0.6"
 objc2-event-kit = "0.3"
-objc2-foundation = "0.3"
+objc2-foundation = { version = "0.3", features = ["NSRunLoop"] }
 objc2-core-graphics = "0.3"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSRunningApplication"] }
 block2 = "0.6"
 
 # Async runtime

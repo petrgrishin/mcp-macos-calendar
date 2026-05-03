@@ -2,7 +2,7 @@
 
 **Metadata:**
 - Priority: 7
-- Status: Draft
+- Status: Done
 - Effort: M (10-20 min)
 
 ## Overview
@@ -156,12 +156,21 @@ pub enum McpError {
 - Освободить ресурсы EventKit bridge через `Drop`
 
 ## Acceptance Criteria
-- [ ] S07AC1: `BridgeError` содержит все 8 вариантов ошибок с человекочитаемыми сообщениями
-- [ ] S07AC2: `ServiceError` оборачивает `BridgeError` через `#[from]`
-- [ ] S07AC3: Ошибки логируются с `tracing::error!` на соответствующем уровне
-- [ ] S07AC4: Успешные операции логируются с `tracing::info!`
-- [ ] S07AC5: Уровень логирования настраивается через `RUST_LOG` env variable
-- [ ] S07AC6: При отсутствии доступа к календарю выводится инструкция для пользователя
-- [ ] S07AC7: Пример конфигурации Claude Desktop для stdio режима создан
-- [ ] S07AC8: Пример конфигурации Claude Desktop для SSE режима создан
-- [ ] S07AC9: Сервер корректно обрабатывает Ctrl+C и завершает работу
+- [x] S07AC1: `BridgeError` содержит все 8 вариантов ошибок с человекочитаемыми сообщениями
+- [x] S07AC2: `ServiceError` оборачивает `BridgeError` через `#[from]`
+- [x] S07AC3: Ошибки логируются с `tracing::error!` на соответствующем уровне
+- [x] S07AC4: Успешные операции логируются с `tracing::info!`
+- [x] S07AC5: Уровень логирования настраивается через `RUST_LOG` env variable
+- [x] S07AC6: При отсутствии доступа к календарю выводится инструкция для пользователя
+- [x] S07AC7: Пример конфигурации Claude Desktop для stdio режима создан
+- [x] S07AC8: Пример конфигурации Claude Desktop для SSE режима создан
+- [x] S07AC9: Сервер корректно обрабатывает Ctrl+C и завершает работу
+
+## Implementation Notes
+- `BridgeError` уже существовал в `src/bridge/eventkit.rs` с 8 вариантами — изменения не потребовались (S07AC1).
+- `ServiceError` уже оборачивал `BridgeError` через `#[from]` в `src/services/mod.rs` (S07AC2).
+- Добавлено логирование `tracing::error!` в `dispatch_tool()` при ошибках и `tracing::info!` при успехе (S07AC3, S07AC4).
+- Логирование через `RUST_LOG` уже было настроено в `main.rs` через `EnvFilter::try_from_default_env()` (S07AC5).
+- Добавлена функция `log_access_denied_instruction()` и обработка отказа доступа в stdio/sse режимах (S07AC6).
+- Созданы файлы `examples/claude_desktop_config_stdio.json` и `examples/claude_desktop_config_sse.json` (S07AC7, S07AC8).
+- Добавлен graceful shutdown через `tokio::signal::ctrl_c()` + `tokio::select!` в SSE режиме (S07AC9).

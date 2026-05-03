@@ -6,13 +6,14 @@ use std::sync::mpsc;
 
 use block2::StackBlock;
 use chrono::TimeZone;
-use objc2::runtime::Bool as ObjcBool;
+use objc2::runtime::Bool;
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 use objc2_core_graphics::CGColor;
 use objc2_event_kit::{
     EKAuthorizationStatus, EKCalendar, EKEntityType, EKEvent, EKEventStore, EKSpan, EKSource,
     EKSourceType,
 };
-use objc2_foundation::{NSDate, NSError, NSString, NSURL};
+use objc2_foundation::{NSDate, NSError, NSRunLoop, NSString, NSURL};
 use thiserror::Error;
 
 use crate::models::{Calendar, Event, EventCreateRequest, EventUpdateRequest};
@@ -61,6 +62,11 @@ pub struct EventKitBridge {
     event_store: objc2::rc::Retained<EKEventStore>,
 }
 
+// SAFETY: EKEventStore is thread-safe for read operations per Apple documentation.
+// All mutable operations go through the bridge which is protected by Mutex in the handler.
+unsafe impl Send for EventKitBridge {}
+unsafe impl Sync for EventKitBridge {}
+
 impl EventKitBridge {
     // -----------------------------------------------------------------------
     // R1: Initialisation
@@ -68,11 +74,29 @@ impl EventKitBridge {
 
     /// Create a new `EventKitBridge` backed by a fresh `EKEventStore`.
     ///
-    /// # Safety
-    ///
-    /// Must be called on the main thread or a thread with a running
-    /// `CFRunLoop` (required by EventKit internals).
+    /// Also initialises `NSApplication.sharedApplication` so that the process
+    /// can connect to the macOS Window Server and display system dialogs
+    /// (such as the calendar permission prompt).
     pub fn new() -> Result<Self, BridgeError> {
+        // Initialise NSApplication so EventKit can show the permission dialog.
+        // Without this, macOS silently rejects the access request because the
+        // CLI process has no connection to the Window Server.
+        let mtm = objc2::MainThreadMarker::new()
+            .expect("EventKitBridge::new() must be called on the main thread");
+        let app = unsafe { NSApplication::sharedApplication(mtm) };
+        // Set activation policy to Regular so the app appears as a regular
+        // (foreground) application. This is required for macOS to show the
+        // system permission dialog.
+        unsafe {
+            app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+            // Force activation even if another app is currently active.
+            // Without this, the permission dialog appears and immediately
+            // closes because the terminal reclaims focus.
+            #[allow(deprecated)]
+            app.activateIgnoringOtherApps(true);
+        }
+        tracing::debug!("NSApplication initialised with Regular activation policy");
+
         let event_store = unsafe { EKEventStore::new() };
         Ok(Self { event_store })
     }
@@ -85,10 +109,16 @@ impl EventKitBridge {
     ///
     /// If the status is `NotDetermined` the system permission dialog is shown.
     /// If the status is `Denied` or `Restricted` an error is returned.
+    ///
+    /// Uses the modern `requestFullAccessToEventsWithCompletion:` API
+    /// (macOS 14+).
     pub fn request_access(&self) -> Result<bool, BridgeError> {
         let status = unsafe {
             EKEventStore::authorizationStatusForEntityType(EKEntityType::Event)
         };
+
+        let status_name = authorization_status_name(&status);
+        tracing::info!("Current calendar authorization status: {}", status_name);
 
         match status {
             s if s == EKAuthorizationStatus::FullAccess
@@ -96,25 +126,71 @@ impl EventKitBridge {
             {
                 Ok(true)
             }
+            s if s == EKAuthorizationStatus::Denied
+                || s == EKAuthorizationStatus::Restricted =>
+            {
+                tracing::warn!(
+                    "Calendar access is {} — user must grant it in System Settings",
+                    status_name
+                );
+                Err(BridgeError::AccessDenied)
+            }
             _ => {
-                // NotDetermined, Denied, Restricted — request access synchronously via channel
+                // NotDetermined — request access and pump RunLoop while waiting
+                tracing::info!("Requesting calendar access (status: NotDetermined)...");
                 let (sender, receiver) = mpsc::channel();
                 let block =
-                    StackBlock::new(move |granted: ObjcBool, _error: *mut NSError| {
+                    StackBlock::new(move |granted: Bool, _error: *mut NSError| {
                         let _ = sender.send(granted.as_bool());
                     });
                 let block = block.copy();
                 unsafe {
-                    #[allow(deprecated)]
                     self.event_store
-                        .requestAccessToEntityType_completion(
-                            EKEntityType::Event,
+                        .requestFullAccessToEventsWithCompletion(
                             &*block as *const _ as *mut _,
                         );
                 }
-                receiver
-                    .recv()
-                    .map_err(|_| BridgeError::EventKitError("channel closed".into()))
+
+                // Pump the RunLoop so the system permission dialog can appear
+                // and the completion block can be dispatched.
+                let run_loop = unsafe { NSRunLoop::currentRunLoop() };
+                let timeout = unsafe {
+                    NSDate::dateWithTimeIntervalSinceNow(60.0)
+                };
+                let granted = loop {
+                    // Check if the callback has already fired.
+                    match receiver.try_recv() {
+                        Ok(granted) => break granted,
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            return Err(BridgeError::EventKitError("channel closed".into()));
+                        }
+                        Err(mpsc::TryRecvError::Empty) => {}
+                    }
+                    // Run the loop for 0.1s to process events (dialog, callback).
+                    let deadline = unsafe {
+                        NSDate::dateWithTimeIntervalSinceNow(0.1)
+                    };
+                    unsafe {
+                        run_loop.runUntilDate(&deadline);
+                    }
+                    // Safety check: don't wait forever.
+                    let now = unsafe { NSDate::new() };
+                    if now.timeIntervalSinceReferenceDate()
+                        >= timeout.timeIntervalSinceReferenceDate()
+                    {
+                        tracing::warn!("Timed out waiting for calendar access response");
+                        return Err(BridgeError::EventKitError(
+                            "timed out waiting for access response".into(),
+                        ));
+                    }
+                };
+
+                if granted {
+                    tracing::info!("Calendar access granted by user");
+                } else {
+                    tracing::warn!("Calendar access denied by user or system");
+                }
+                Ok(granted)
             }
         }
     }
@@ -770,5 +846,132 @@ mod tests {
             original_ts,
             parsed_ts
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Spec 07 tests
+    // ------------------------------------------------------------------
+
+    /// S07AC1: BridgeError contains all 8 variants with human-readable messages.
+    #[test]
+    fn test_S07AC1_bridge_error_all_8_variants_with_messages() {
+        // 1. AccessDenied
+        let err = BridgeError::AccessDenied;
+        let msg = format!("{}", err);
+        assert!(
+            msg.to_lowercase().contains("access"),
+            "AccessDenied should mention 'access': got '{}'",
+            msg
+        );
+        assert!(
+            msg.to_lowercase().contains("denied"),
+            "AccessDenied should mention 'denied': got '{}'",
+            msg
+        );
+
+        // 2. CalendarNotFound
+        let err = BridgeError::CalendarNotFound("cal-123".into());
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("cal-123"),
+            "CalendarNotFound should contain the id: got '{}'",
+            msg
+        );
+        assert!(
+            msg.to_lowercase().contains("calendar") && msg.to_lowercase().contains("not found"),
+            "CalendarNotFound should mention 'calendar' and 'not found': got '{}'",
+            msg
+        );
+
+        // 3. EventNotFound
+        let err = BridgeError::EventNotFound("evt-456".into());
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("evt-456"),
+            "EventNotFound should contain the id: got '{}'",
+            msg
+        );
+        assert!(
+            msg.to_lowercase().contains("event") && msg.to_lowercase().contains("not found"),
+            "EventNotFound should mention 'event' and 'not found': got '{}'",
+            msg
+        );
+
+        // 4. ModificationNotAllowed
+        let err = BridgeError::ModificationNotAllowed;
+        let msg = format!("{}", err);
+        assert!(
+            msg.to_lowercase().contains("modif"),
+            "ModificationNotAllowed should mention 'modif': got '{}'",
+            msg
+        );
+
+        // 5. NoValidSource
+        let err = BridgeError::NoValidSource;
+        let msg = format!("{}", err);
+        assert!(
+            msg.to_lowercase().contains("source"),
+            "NoValidSource should mention 'source': got '{}'",
+            msg
+        );
+
+        // 6. InvalidDateFormat
+        let err = BridgeError::InvalidDateFormat("bad-date".into());
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("bad-date"),
+            "InvalidDateFormat should contain the input: got '{}'",
+            msg
+        );
+        assert!(
+            msg.to_lowercase().contains("date") && msg.to_lowercase().contains("format"),
+            "InvalidDateFormat should mention 'date' and 'format': got '{}'",
+            msg
+        );
+
+        // 7. EventKitError
+        let err = BridgeError::EventKitError("some error".into());
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("some error"),
+            "EventKitError should contain the detail: got '{}'",
+            msg
+        );
+        assert!(
+            msg.to_lowercase().contains("eventkit"),
+            "EventKitError should mention 'eventkit': got '{}'",
+            msg
+        );
+
+        // 8. ObjcError
+        let err = BridgeError::ObjcError("objc fail".into());
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("objc fail"),
+            "ObjcError should contain the detail: got '{}'",
+            msg
+        );
+        assert!(
+            msg.to_lowercase().contains("objc"),
+            "ObjcError should mention 'objc': got '{}'",
+            msg
+        );
+    }
+}
+
+/// Return a human-readable name for an `EKAuthorizationStatus` value.
+fn authorization_status_name(status: &EKAuthorizationStatus) -> &'static str {
+    if *status == EKAuthorizationStatus::NotDetermined {
+        "NotDetermined"
+    } else if *status == EKAuthorizationStatus::Restricted {
+        "Restricted"
+    } else if *status == EKAuthorizationStatus::Denied {
+        "Denied"
+    } else if *status == EKAuthorizationStatus::FullAccess {
+        "FullAccess"
+    } else if *status == EKAuthorizationStatus::WriteOnly {
+        "WriteOnly"
+    } else {
+        "Unknown"
     }
 }

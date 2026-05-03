@@ -2,7 +2,7 @@
 
 **Metadata:**
 - Priority: 6
-- Status: Draft
+- Status: Done
 - Effort: L (>20 min)
 
 ## Overview
@@ -276,14 +276,22 @@ Ok(ListToolsResult {
 ```
 
 ## Acceptance Criteria
-- [ ] S06AC1: Все 7 tools определены через `#[mcp_tool]` макрос
-- [ ] S06AC2: Каждый tool имеет корректное имя, описание и схему параметров
-- [ ] S06AC3: `getCalendars` вызывается без параметров и возвращает список календарей
-- [ ] S06AC4: `getCalendarEvents` принимает `calendarId` и возвращает события
-- [ ] S06AC5: `createCalendar` создаёт календарь с обязательным title и опциональным color
-- [ ] S06AC6: `deleteCalendar` удаляет календарь по ID
-- [ ] S06AC7: `createCalendarEvent` создаёт событие с валидацией дат
-- [ ] S06AC8: `updateCalendarEvent` обновляет только переданные поля
-- [ ] S06AC9: `deleteCalendarEvent` удаляет событие по calendarId и eventId
-- [ ] S06AC10: Все tools возвращают ошибки в формате JSON с `is_error: true`
-- [ ] S06AC11: JSON Schema параметров корректно генерируется для каждого tool
+- [x] S06AC1: Все 7 tools определены через `#[mcp_tool]` макрос
+- [x] S06AC2: Каждый tool имеет корректное имя, описание и схему параметров
+- [x] S06AC3: `getCalendars` вызывается без параметров и возвращает список календарей
+- [x] S06AC4: `getCalendarEvents` принимает `calendarId` и возвращает события
+- [x] S06AC5: `createCalendar` создаёт календарь с обязательным title и опциональным color
+- [x] S06AC6: `deleteCalendar` удаляет календарь по ID
+- [x] S06AC7: `createCalendarEvent` создаёт событие с валидацией дат
+- [x] S06AC8: `updateCalendarEvent` обновляет только переданные поля
+- [x] S06AC9: `deleteCalendarEvent` удаляет событие по calendarId и eventId
+- [x] S06AC10: Все tools возвращают ошибки в формате JSON с `is_error: true`
+- [x] S06AC11: JSON Schema параметров корректно генерируется для каждого tool
+
+## Implementation Notes
+- `CalendarMcpHandler` теперь хранит `EventKitBridge` через `Mutex<Option<EventKitBridge>>` для thread-safety.
+- Добавлен `unsafe impl Send/Sync for EventKitBridge` — EKEventStore потокобезопасен при правильном использовании (защищён Mutex).
+- `dispatch_tool` сначала валидирует имя tool, затем проверяет bridge — это позволяет корректно возвращать `unknown_tool` ошибку даже без bridge.
+- `execute()` методы tools принимают `&EventKitBridge` и вызывают соответствующие сервисы (`CalendarService`, `EventService`).
+- Интеграция с `main.rs` обновлена: bridge создаётся при запуске, запрашивается доступ, передаётся в handler.
+- Все 65 тестов проходят (включая 10 новых для spec-06).

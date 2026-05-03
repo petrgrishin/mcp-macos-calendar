@@ -61,6 +61,16 @@ pub struct EventUpdateRequest {
     pub url: Option<String>,
 }
 
+/// Result of listing events with pagination metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventListResult {
+    pub events: Vec<Event>,
+    pub total: usize,
+    pub limit: u32,
+    pub offset: u32,
+    pub has_more: bool,
+}
+
 /// Generic MCP tool response wrapper.
 #[derive(Debug, Serialize)]
 pub struct ToolResponse<T: Serialize> {
