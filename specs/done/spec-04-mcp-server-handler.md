@@ -10,7 +10,7 @@
 Необходимо реализовать MCP ServerHandler, который обрабатывает входящие MCP запросы и маршрутизирует их к соответствующим tools. Сервер должен поддерживать два режима транспорта: stdio для локального использования с Claude Desktop и SSE/HTTP для удалённого доступа.
 
 ### Solution Summary
-Использовать `rust-mcp-sdk` crate для реализации MCP протокола. Создать `CalendarMcpHandler` реализующий trait `ServerHandler`. Выбор транспорта определяется CLI аргументами: `StdioTransport` для stdio режима и `hyper_server` для SSE/HTTP режима.
+Использовать `rmcp` crate (https://github.com/modelcontextprotocol/rust-sdk) для реализации MCP протокола. Создать `CalendarMcpHandler` реализующий trait `ServerHandler`. Выбор транспорта определяется CLI аргументами: `transport::stdio` для stdio режима и `transport::sse_server` для SSE/HTTP режима.
 
 ## Data Model
 ```mermaid
@@ -102,12 +102,12 @@ sequenceDiagram
 - Создать структуру `CalendarMcpHandler` содержащую:
   - `calendar_service: CalendarService` — сервис для работы с календарями
   - `event_service: EventService` — сервис для работы с событиями
-- Реализовать trait `ServerHandler` из `rust-mcp-sdk`:
-  - `handle_list_tools_request` — вернуть список всех 7 tools
-  - `handle_call_tool_request` — маршрутизировать вызов к нужному tool
+- Реализовать trait `ServerHandler` из `rmcp`:
+  - `list_tools` — вернуть список всех 7 tools
+  - `call_tool` — маршрутизировать вызов к нужному tool
 
 ### R2: Регистрация MCP Tools
-Использовать макрос `#[mcp_tool]` из `rust-mcp-sdk` для определения 7 tools:
+Использовать макрос `#[tool]` из `rmcp` для определения 7 tools:
 
 | # | Tool Name | Description | Параметры |
 |---|-----------|-------------|-----------|
@@ -135,7 +135,7 @@ sequenceDiagram
 - Подходит для интеграции с Claude Desktop через конфигурацию mcpServers
 
 ### R5: SSE/HTTP транспорт
-- Использовать `hyper_server::create_server` из `rust-mcp-sdk`
+- Использовать `transport::sse_server` из `rmcp`
 - Настроить `HyperServerOptions`:
   - `host: "127.0.0.1"` — configurable через CLI
   - `port: 8080` — configurable через CLI
@@ -185,7 +185,7 @@ let server_info = InitializeResult {
 
 ## Implementation Notes
 - Структура `CalendarServerHandler` переименована в `CalendarMcpHandler` для соответствия спецификации.
-- 7 MCP tools определены через `#[mcp_tool]` макрос из `rust-mcp-sdk` в `src/tools/calendar.rs` (4 tools) и `src/tools/event.rs` (3 tools).
+- 7 MCP tools определены через `#[tool]` макрос из `rmcp` в `src/tools/calendar.rs` (4 tools) и `src/tools/event.rs` (3 tools).
 - `GetCalendarsTool` использует пустую структуру с `{}` вместо unit struct `;`, т.к. `JsonSchema` derive не поддерживает unit structs.
 - Логика диспетчеризации вынесена в отдельную функцию `dispatch_tool()` для удобного unit-тестирования без необходимости мокать `Arc<dyn McpServer>`.
 - Helper-функция `error_tool_result()` создаёт `CallToolResult` с `is_error: Some(true)` и JSON-контентом `{"error": "..."}`.

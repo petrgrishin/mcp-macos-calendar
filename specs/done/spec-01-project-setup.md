@@ -10,7 +10,7 @@
 Необходимо создать Rust проект для MCP сервера, обеспечивающего доступ к календарю macOS. Проект должен поддерживать два режима транспорта: stdio и SSE/HTTP. Требуется определить архитектуру, зависимости и структуру модулей.
 
 ### Solution Summary
-Создать Cargo проект с использованием `rust-mcp-sdk` для MCP протокола и `objc2`/`icrate` для доступа к macOS EventKit через нативные Objective-C bindings. Проект разделить на слои: транспорт, MCP handler, бизнес-логика календаря, EventKit bridge.
+Создать Cargo проект с использованием `rmcp` (https://github.com/modelcontextprotocol/rust-sdk) для MCP протокола и `objc2`/`icrate` для доступа к macOS EventKit через нативные Objective-C bindings. Проект разделить на слои: транспорт, MCP handler, бизнес-логика календаря, EventKit bridge.
 
 ## Data Model
 ```mermaid
@@ -116,7 +116,7 @@ sequenceDiagram
   - `src/config.rs` — конфигурация сервера
 
 ### R2: Зависимости Cargo.toml
-- `rust-mcp-sdk` — MCP протокол, поддержка stdio и SSE/HTTP транспорта
+- `rmcp` — MCP протокол (https://github.com/modelcontextprotocol/rust-sdk), поддержка stdio и SSE/HTTP транспорта
 - `objc2` — Rust bindings для Objective-C runtime
 - `icrate` с feature `EventKit` — автогенерированные bindings для Apple EventKit
 - `tokio` с features `full` — async runtime
@@ -154,6 +154,6 @@ sequenceDiagram
 
 ## Implementation Notes
 - **Зависимость `icrate` заменена на `objc2-event-kit`**: Спецификация указывала `icrate` с feature `EventKit`, но `icrate` v0.1.2 не имеет feature `EventKit`. Вместо неё использован `objc2-event-kit` v0.3 из той же экосистемы objc2 (тот же репозиторий madsmtm/objc2).
-- **API `rust-mcp-sdk` v0.9.0**: Функция `server_runtime::create_server` принимает `McpServerOptions<T>` вместо отдельных аргументов. `HyperServerOptions` использует `Default` для большинства полей.
+- **API `rmcp`**: Трейт `ServerHandler` из `rmcp` предоставляет методы `list_tools`, `call_tool` и другие с дефолтной реализацией. Транспорт настраивается через `transport::stdio` и `transport::sse_server`.
 - **DNS rebinding protection**: `allowed_hosts` включает хост как с портом, так и без (например, `127.0.0.1` и `127.0.0.1:3000`), так как HTTP-клиенты отправляют Host header с портом.
 - **Тесты**: 7 unit-тестов для CLI аргументов (S01AC6) + 2 интеграционных теста для запуска серверов (S01AC2, S01AC3). Интеграционные тесты используют `CARGO_BIN_EXE` для прямого запуска бинарника.

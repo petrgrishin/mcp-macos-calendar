@@ -49,7 +49,7 @@ sequenceDiagram
 В [`src/tools/calendar.rs`](src/tools/calendar.rs:52) добавить опциональные параметры:
 
 ```rust
-#[mcp_tool(name = "getCalendarEvents", description = "Get events from a specific calendar, optionally filtered by date range with pagination")]
+#[tool(name = "getCalendarEvents", description = "Get events from a specific calendar, optionally filtered by date range with pagination")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetCalendarEventsTool {
     /// The ID of the calendar to get events from
@@ -183,4 +183,4 @@ impl GetCalendarEventsTool {
 - Сигнатура `EventService::list_events()` расширена: добавлены параметры `start_date`, `end_date`, `limit`, `offset`.
 - Константы `DEFAULT_LIMIT=100` и `MAX_LIMIT=1000` определены в `src/services/event_service.rs`.
 - Тесты AC2-AC7, AC9-AC15 реализованы как unit-тесты без зависимости от EventKitBridge (не требуют main thread).
-- Тесты AC1, AC8 проверяют JSON Schema через `mcp_tool` макрос.
+- Тесты AC1, AC8 проверяют JSON Schema через `#[tool]` макрос.

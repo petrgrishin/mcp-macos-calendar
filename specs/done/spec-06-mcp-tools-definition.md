@@ -10,49 +10,49 @@
 Необходимо определить 7 MCP tools для работы с календарями и событиями macOS, аналогичных tools из оригинального проекта `mcp-apple-calendar`. Каждый tool должен иметь схему параметров, описание и обработчик.
 
 ### Solution Summary
-Использовать макрос `#[mcp_tool]` из `rust-mcp-sdk` для декларативного определения tools с автоматической генерацией JSON Schema. Каждый tool описан в модуле `src/tools/`. Calendar tools в `src/tools/calendar.rs`, event tools в `src/tools/event.rs`.
+Использовать макрос `#[tool]` из `rmcp` (https://github.com/modelcontextprotocol/rust-sdk) для декларативного определения tools с автоматической генерацией JSON Schema. Каждый tool описан в модуле `src/tools/`. Calendar tools в `src/tools/calendar.rs`, event tools в `src/tools/event.rs`.
 
 ## Data Model
 ```mermaid
 classDiagram
     class GetCalendarsTool {
-        <<mcp_tool>>
+        <<tool>>
         name: getCalendars
         description: List all available macOS calendars
         params: none
     }
     class GetCalendarEventsTool {
-        <<mcp_tool>>
+        <<tool>>
         name: getCalendarEvents
         description: Get events from a specific calendar
         params: calendarId: String
     }
     class CreateCalendarTool {
-        <<mcp_tool>>
+        <<tool>>
         name: createCalendar
         description: Create a new calendar
         params: title: String, color?: String
     }
     class DeleteCalendarTool {
-        <<mcp_tool>>
+        <<tool>>
         name: deleteCalendar
         description: Delete a calendar
         params: calendarId: String
     }
     class CreateCalendarEventTool {
-        <<mcp_tool>>
+        <<tool>>
         name: createCalendarEvent
         description: Create a new event in a calendar
         params: calendarId, title, startDate, endDate, location?, notes?
     }
     class UpdateCalendarEventTool {
-        <<mcp_tool>>
+        <<tool>>
         name: updateCalendarEvent
         description: Update an existing event
         params: calendarId, eventId, title?, startDate?, endDate?, location?, notes?
     }
     class DeleteCalendarEventTool {
-        <<mcp_tool>>
+        <<tool>>
         name: deleteCalendarEvent
         description: Delete an event from a calendar
         params: calendarId, eventId
@@ -179,22 +179,22 @@ sequenceDiagram
 - **Ошибка**: `{"error": "Failed to delete event"}`
 
 ### R8: Определение структур tools через макрос
-Каждый tool определяется через `#[mcp_tool]` макрос:
+Каждый tool определяется через `#[tool]` макрос:
 
 ```rust
 // src/tools/calendar.rs
-#[mcp_tool(name = "getCalendars", description = "List all available macOS calendars")]
+#[tool(name = "getCalendars", description = "List all available macOS calendars")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetCalendarsTool {}
 
-#[mcp_tool(name = "getCalendarEvents", description = "Get events from a specific calendar")]
+#[tool(name = "getCalendarEvents", description = "Get events from a specific calendar")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct GetCalendarEventsTool {
     /// The ID of the calendar to get events from
     pub calendar_id: String,
 }
 
-#[mcp_tool(name = "createCalendar", description = "Create a new calendar in macOS")]
+#[tool(name = "createCalendar", description = "Create a new calendar in macOS")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreateCalendarTool {
     /// The title of the calendar
@@ -203,7 +203,7 @@ pub struct CreateCalendarTool {
     pub color: Option<String>,
 }
 
-#[mcp_tool(name = "deleteCalendar", description = "Delete a calendar from macOS")]
+#[tool(name = "deleteCalendar", description = "Delete a calendar from macOS")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DeleteCalendarTool {
     /// The ID of the calendar to delete
@@ -211,7 +211,7 @@ pub struct DeleteCalendarTool {
 }
 
 // src/tools/event.rs
-#[mcp_tool(name = "createCalendarEvent", description = "Create a new event in a calendar")]
+#[tool(name = "createCalendarEvent", description = "Create a new event in a calendar")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct CreateCalendarEventTool {
     /// The ID of the calendar to create the event in
@@ -228,7 +228,7 @@ pub struct CreateCalendarEventTool {
     pub notes: Option<String>,
 }
 
-#[mcp_tool(name = "updateCalendarEvent", description = "Update an existing event in a calendar")]
+#[tool(name = "updateCalendarEvent", description = "Update an existing event in a calendar")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct UpdateCalendarEventTool {
     /// The ID of the calendar the event belongs to
@@ -247,7 +247,7 @@ pub struct UpdateCalendarEventTool {
     pub notes: Option<String>,
 }
 
-#[mcp_tool(name = "deleteCalendarEvent", description = "Delete an event from a calendar")]
+#[tool(name = "deleteCalendarEvent", description = "Delete an event from a calendar")]
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct DeleteCalendarEventTool {
     /// The ID of the calendar the event belongs to
@@ -276,7 +276,7 @@ Ok(ListToolsResult {
 ```
 
 ## Acceptance Criteria
-- [x] S06AC1: Все 7 tools определены через `#[mcp_tool]` макрос
+- [x] S06AC1: Все 7 tools определены через `#[tool]` макрос
 - [x] S06AC2: Каждый tool имеет корректное имя, описание и схему параметров
 - [x] S06AC3: `getCalendars` вызывается без параметров и возвращает список календарей
 - [x] S06AC4: `getCalendarEvents` принимает `calendarId` и возвращает события
