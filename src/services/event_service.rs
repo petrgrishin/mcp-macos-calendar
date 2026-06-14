@@ -37,7 +37,9 @@ impl<'a> EventService<'a> {
     ) -> ServiceResult<EventListResult> {
         // Validate calendar_id is not empty
         if calendar_id.trim().is_empty() {
-            return Err(ServiceError::Validation("calendar_id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "calendar_id must not be empty".to_string(),
+            ));
         }
 
         // Validate and resolve dates
@@ -86,7 +88,11 @@ impl<'a> EventService<'a> {
         let events: Vec<Event> = if start_idx >= total {
             Vec::new()
         } else {
-            all_events.into_iter().skip(start_idx).take(limit_val as usize).collect()
+            all_events
+                .into_iter()
+                .skip(start_idx)
+                .take(limit_val as usize)
+                .collect()
         };
 
         let has_more = (offset_val as usize + limit_val as usize) < total;
@@ -104,17 +110,23 @@ impl<'a> EventService<'a> {
     pub fn get_event(&self, calendar_id: &str, event_id: &str) -> ServiceResult<Event> {
         // R3: validate ids are not empty
         if calendar_id.trim().is_empty() {
-            return Err(ServiceError::Validation("calendar_id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "calendar_id must not be empty".to_string(),
+            ));
         }
         if event_id.trim().is_empty() {
-            return Err(ServiceError::Validation("event_id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "event_id must not be empty".to_string(),
+            ));
         }
 
         // Check calendar exists
         let cal = self
             .bridge
             .find_calendar_by_id(calendar_id)?
-            .ok_or_else(|| ServiceError::from(BridgeError::CalendarNotFound(calendar_id.to_string())))?;
+            .ok_or_else(|| {
+                ServiceError::from(BridgeError::CalendarNotFound(calendar_id.to_string()))
+            })?;
 
         let _ = cal; // calendar exists
 
@@ -138,12 +150,16 @@ impl<'a> EventService<'a> {
     pub fn create_event(&self, request: EventCreateRequest) -> ServiceResult<Event> {
         // R3: validate title is not empty
         if request.title.trim().is_empty() {
-            return Err(ServiceError::Validation("title must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "title must not be empty".to_string(),
+            ));
         }
 
         // R3: validate calendar_id is not empty
         if request.calendar_id.trim().is_empty() {
-            return Err(ServiceError::Validation("calendar_id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "calendar_id must not be empty".to_string(),
+            ));
         }
 
         // R3: validate dates via parse_flexible_date
@@ -164,10 +180,14 @@ impl<'a> EventService<'a> {
     pub fn update_event(&self, request: EventUpdateRequest) -> ServiceResult<Event> {
         // R3: validate ids are not empty
         if request.calendar_id.trim().is_empty() {
-            return Err(ServiceError::Validation("calendar_id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "calendar_id must not be empty".to_string(),
+            ));
         }
         if request.event_id.trim().is_empty() {
-            return Err(ServiceError::Validation("event_id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "event_id must not be empty".to_string(),
+            ));
         }
 
         // R3: validate dates if provided
@@ -181,7 +201,9 @@ impl<'a> EventService<'a> {
         // R3: validate title if provided
         if let Some(ref title) = request.title {
             if title.trim().is_empty() {
-                return Err(ServiceError::Validation("title must not be empty".to_string()));
+                return Err(ServiceError::Validation(
+                    "title must not be empty".to_string(),
+                ));
             }
         }
 
@@ -192,17 +214,23 @@ impl<'a> EventService<'a> {
     pub fn delete_event(&self, calendar_id: &str, event_id: &str) -> ServiceResult<()> {
         // R3: validate ids are not empty
         if calendar_id.trim().is_empty() {
-            return Err(ServiceError::Validation("calendar_id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "calendar_id must not be empty".to_string(),
+            ));
         }
         if event_id.trim().is_empty() {
-            return Err(ServiceError::Validation("event_id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "event_id must not be empty".to_string(),
+            ));
         }
 
         // Check calendar exists
         let cal = self
             .bridge
             .find_calendar_by_id(calendar_id)?
-            .ok_or_else(|| ServiceError::from(BridgeError::CalendarNotFound(calendar_id.to_string())))?;
+            .ok_or_else(|| {
+                ServiceError::from(BridgeError::CalendarNotFound(calendar_id.to_string()))
+            })?;
 
         let _ = cal;
 
@@ -212,9 +240,8 @@ impl<'a> EventService<'a> {
 
 /// Parse a flexible date string into NaiveDateTime, returning ServiceError on failure.
 fn parse_flexible_date_as_ndt(input: &str) -> ServiceResult<NaiveDateTime> {
-    crate::models::parse_flexible_date(input).map_err(|msg| {
-        ServiceError::from(BridgeError::InvalidDateFormat(msg))
-    })
+    crate::models::parse_flexible_date(input)
+        .map_err(|msg| ServiceError::from(BridgeError::InvalidDateFormat(msg)))
 }
 
 #[cfg(test)]
@@ -224,9 +251,11 @@ mod tests {
     use super::*;
 
     /// Helper: create a real EventKitBridge for integration tests.
-    /// Returns None if calendar access is not granted.
+    /// Returns None if calendar access is not granted or not on main thread.
     fn try_create_bridge() -> Option<EventKitBridge> {
-        let bridge = EventKitBridge::new().ok()?;
+        let bridge = std::panic::catch_unwind(|| EventKitBridge::new())
+            .ok()?
+            .ok()?;
         let granted = bridge.request_access().ok()?;
         if granted {
             Some(bridge)
@@ -297,8 +326,7 @@ mod tests {
 
         let err = format!("{}", result.unwrap_err());
         assert!(
-            err.to_lowercase().contains("start_date")
-                || err.to_lowercase().contains("before"),
+            err.to_lowercase().contains("start_date") || err.to_lowercase().contains("before"),
             "error should mention start_date/before: got '{}'",
             err
         );
@@ -432,7 +460,10 @@ mod tests {
     fn test_S09AC13_limit_exceeds_max_returns_error() {
         let limit: u32 = 1001;
         // Validation: limit must not exceed 1000
-        assert!(limit > MAX_LIMIT, "limit > 1000 should trigger validation error");
+        assert!(
+            limit > MAX_LIMIT,
+            "limit > 1000 should trigger validation error"
+        );
         let err_msg = "limit must not exceed 1000";
         assert!(err_msg.contains("limit must not exceed 1000"));
     }
@@ -497,7 +528,10 @@ mod tests {
             Vec::new()
         };
 
-        assert!(events.is_empty(), "events should be empty when offset >= total");
+        assert!(
+            events.is_empty(),
+            "events should be empty when offset >= total"
+        );
         assert!(!has_more, "has_more should be false when offset >= total");
     }
 
@@ -525,7 +559,7 @@ mod tests {
     fn test_S09AC5_end_date_without_start_date_defaults_start() {
         let now = Local::now().naive_utc();
         let start = now - Duration::days(30); // default when startDate is None
-        // Use a future date for end to ensure start < end
+                                              // Use a future date for end to ensure start < end
         let end = parse_flexible_date_as_ndt("2027-06-15T00:00:00").unwrap();
         assert!(start < end, "default start should be before end");
     }

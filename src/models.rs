@@ -184,15 +184,9 @@ mod tests {
         );
         assert_eq!(obj.get("id").unwrap().as_str().unwrap(), "evt-456");
         assert_eq!(obj.get("title").unwrap().as_str().unwrap(), "Meeting");
-        assert_eq!(
-            obj.get("calendar_id").unwrap().as_str().unwrap(),
-            "cal-123"
-        );
+        assert_eq!(obj.get("calendar_id").unwrap().as_str().unwrap(), "cal-123");
         assert_eq!(obj.get("is_all_day").unwrap().as_bool().unwrap(), false);
-        assert_eq!(
-            obj.get("location").unwrap().as_str().unwrap(),
-            "Office"
-        );
+        assert_eq!(obj.get("location").unwrap().as_str().unwrap(), "Office");
         assert!(obj.get("notes").unwrap().is_null());
         assert!(obj.get("url").unwrap().is_null());
     }

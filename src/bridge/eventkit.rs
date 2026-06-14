@@ -10,8 +10,8 @@ use objc2::runtime::Bool;
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 use objc2_core_graphics::CGColor;
 use objc2_event_kit::{
-    EKAuthorizationStatus, EKCalendar, EKEntityType, EKEvent, EKEventStore, EKSpan, EKSource,
-    EKSourceType,
+    EKAuthorizationStatus, EKCalendar, EKEntityType, EKEvent, EKEventStore, EKSource, EKSourceType,
+    EKSpan,
 };
 use objc2_foundation::{NSDate, NSError, NSRunLoop, NSString, NSURL};
 use thiserror::Error;
@@ -113,9 +113,7 @@ impl EventKitBridge {
     /// Uses the modern `requestFullAccessToEventsWithCompletion:` API
     /// (macOS 14+).
     pub fn request_access(&self) -> Result<bool, BridgeError> {
-        let status = unsafe {
-            EKEventStore::authorizationStatusForEntityType(EKEntityType::Event)
-        };
+        let status = unsafe { EKEventStore::authorizationStatusForEntityType(EKEntityType::Event) };
 
         let status_name = authorization_status_name(&status);
         tracing::info!("Current calendar authorization status: {}", status_name);
@@ -126,9 +124,7 @@ impl EventKitBridge {
             {
                 Ok(true)
             }
-            s if s == EKAuthorizationStatus::Denied
-                || s == EKAuthorizationStatus::Restricted =>
-            {
+            s if s == EKAuthorizationStatus::Denied || s == EKAuthorizationStatus::Restricted => {
                 tracing::warn!(
                     "Calendar access is {} — user must grant it in System Settings",
                     status_name
@@ -139,24 +135,19 @@ impl EventKitBridge {
                 // NotDetermined — request access and pump RunLoop while waiting
                 tracing::info!("Requesting calendar access (status: NotDetermined)...");
                 let (sender, receiver) = mpsc::channel();
-                let block =
-                    StackBlock::new(move |granted: Bool, _error: *mut NSError| {
-                        let _ = sender.send(granted.as_bool());
-                    });
+                let block = StackBlock::new(move |granted: Bool, _error: *mut NSError| {
+                    let _ = sender.send(granted.as_bool());
+                });
                 let block = block.copy();
                 unsafe {
                     self.event_store
-                        .requestFullAccessToEventsWithCompletion(
-                            &*block as *const _ as *mut _,
-                        );
+                        .requestFullAccessToEventsWithCompletion(&*block as *const _ as *mut _);
                 }
 
                 // Pump the RunLoop so the system permission dialog can appear
                 // and the completion block can be dispatched.
                 let run_loop = unsafe { NSRunLoop::currentRunLoop() };
-                let timeout = unsafe {
-                    NSDate::dateWithTimeIntervalSinceNow(60.0)
-                };
+                let timeout = unsafe { NSDate::dateWithTimeIntervalSinceNow(60.0) };
                 let granted = loop {
                     // Check if the callback has already fired.
                     match receiver.try_recv() {
@@ -167,9 +158,7 @@ impl EventKitBridge {
                         Err(mpsc::TryRecvError::Empty) => {}
                     }
                     // Run the loop for 0.1s to process events (dialog, callback).
-                    let deadline = unsafe {
-                        NSDate::dateWithTimeIntervalSinceNow(0.1)
-                    };
+                    let deadline = unsafe { NSDate::dateWithTimeIntervalSinceNow(0.1) };
                     unsafe {
                         run_loop.runUntilDate(&deadline);
                     }
@@ -201,15 +190,12 @@ impl EventKitBridge {
 
     /// Return all calendars that support events.
     pub fn list_calendars(&self) -> Result<Vec<Calendar>, BridgeError> {
-        let ek_calendars = unsafe {
-            self.event_store
-                .calendarsForEntityType(EKEntityType::Event)
-        };
+        let ek_calendars = unsafe { self.event_store.calendarsForEntityType(EKEntityType::Event) };
 
         let default_cal = unsafe { self.event_store.defaultCalendarForNewEvents() };
-        let default_id = default_cal.as_ref().map(|c| {
-            unsafe { c.calendarIdentifier() }.to_string()
-        });
+        let default_id = default_cal
+            .as_ref()
+            .map(|c| unsafe { c.calendarIdentifier() }.to_string());
 
         let mut result = Vec::new();
         for ek_cal in ek_calendars.iter() {
@@ -221,16 +207,14 @@ impl EventKitBridge {
     /// Find a calendar by its identifier.
     pub fn find_calendar_by_id(&self, id: &str) -> Result<Option<Calendar>, BridgeError> {
         let ns_id = rust_to_nsstring(id);
-        let ek_cal =
-            unsafe { self.event_store.calendarWithIdentifier(&ns_id) };
+        let ek_cal = unsafe { self.event_store.calendarWithIdentifier(&ns_id) };
 
         match ek_cal {
             Some(cal) => {
-                let default_cal =
-                    unsafe { self.event_store.defaultCalendarForNewEvents() };
-                let default_id = default_cal.as_ref().map(|c| {
-                    unsafe { c.calendarIdentifier() }.to_string()
-                });
+                let default_cal = unsafe { self.event_store.defaultCalendarForNewEvents() };
+                let default_id = default_cal
+                    .as_ref()
+                    .map(|c| unsafe { c.calendarIdentifier() }.to_string());
                 Ok(Some(ekcalendar_to_model(&cal, default_id.as_deref())))
             }
             None => Ok(None),
@@ -246,8 +230,10 @@ impl EventKitBridge {
         let source = self.find_local_source()?;
 
         let ek_cal = unsafe {
-            let cal =
-                EKCalendar::calendarForEntityType_eventStore(EKEntityType::Event, &self.event_store);
+            let cal = EKCalendar::calendarForEntityType_eventStore(
+                EKEntityType::Event,
+                &self.event_store,
+            );
             cal.setTitle(&rust_to_nsstring(title));
             cal.setSource(Some(&source));
 
@@ -267,9 +253,9 @@ impl EventKitBridge {
         }
 
         let default_cal = unsafe { self.event_store.defaultCalendarForNewEvents() };
-        let default_id = default_cal.as_ref().map(|c| {
-            unsafe { c.calendarIdentifier() }.to_string()
-        });
+        let default_id = default_cal
+            .as_ref()
+            .map(|c| unsafe { c.calendarIdentifier() }.to_string());
 
         Ok(ekcalendar_to_model(&ek_cal, default_id.as_deref()))
     }
@@ -277,9 +263,8 @@ impl EventKitBridge {
     /// Delete a calendar by its identifier.
     pub fn delete_calendar(&self, id: &str) -> Result<(), BridgeError> {
         let ns_id = rust_to_nsstring(id);
-        let ek_cal =
-            unsafe { self.event_store.calendarWithIdentifier(&ns_id) }
-                .ok_or_else(|| BridgeError::CalendarNotFound(id.to_string()))?;
+        let ek_cal = unsafe { self.event_store.calendarWithIdentifier(&ns_id) }
+            .ok_or_else(|| BridgeError::CalendarNotFound(id.to_string()))?;
 
         if !unsafe { ek_cal.allowsContentModifications() } {
             return Err(BridgeError::ModificationNotAllowed);
@@ -306,10 +291,8 @@ impl EventKitBridge {
         end: &str,
     ) -> Result<Vec<Event>, BridgeError> {
         let ns_cal_id = rust_to_nsstring(calendar_id);
-        let ek_cal = unsafe {
-            self.event_store.calendarWithIdentifier(&ns_cal_id)
-        }
-        .ok_or_else(|| BridgeError::CalendarNotFound(calendar_id.to_string()))?;
+        let ek_cal = unsafe { self.event_store.calendarWithIdentifier(&ns_cal_id) }
+            .ok_or_else(|| BridgeError::CalendarNotFound(calendar_id.to_string()))?;
 
         let ns_start = iso8601_to_nsdate(start)?;
         let ns_end = iso8601_to_nsdate(end)?;
@@ -336,8 +319,7 @@ impl EventKitBridge {
     /// Get a single event by its identifier.
     pub fn get_event(&self, event_id: &str) -> Result<Option<Event>, BridgeError> {
         let ns_id = rust_to_nsstring(event_id);
-        let ek_event =
-            unsafe { self.event_store.eventWithIdentifier(&ns_id) };
+        let ek_event = unsafe { self.event_store.eventWithIdentifier(&ns_id) };
 
         match ek_event {
             Some(ev) => Ok(Some(ekevent_to_model(&ev)?)),
@@ -352,10 +334,8 @@ impl EventKitBridge {
         request: &EventCreateRequest,
     ) -> Result<Event, BridgeError> {
         let ns_cal_id = rust_to_nsstring(calendar_id);
-        let ek_cal = unsafe {
-            self.event_store.calendarWithIdentifier(&ns_cal_id)
-        }
-        .ok_or_else(|| BridgeError::CalendarNotFound(calendar_id.to_string()))?;
+        let ek_cal = unsafe { self.event_store.calendarWithIdentifier(&ns_cal_id) }
+            .ok_or_else(|| BridgeError::CalendarNotFound(calendar_id.to_string()))?;
 
         let start_date = iso8601_to_nsdate(&request.start_date)?;
         let end_date = iso8601_to_nsdate(&request.end_date)?;
@@ -400,9 +380,8 @@ impl EventKitBridge {
         request: &EventUpdateRequest,
     ) -> Result<Event, BridgeError> {
         let ns_id = rust_to_nsstring(event_id);
-        let ek_event =
-            unsafe { self.event_store.eventWithIdentifier(&ns_id) }
-                .ok_or_else(|| BridgeError::EventNotFound(event_id.to_string()))?;
+        let ek_event = unsafe { self.event_store.eventWithIdentifier(&ns_id) }
+            .ok_or_else(|| BridgeError::EventNotFound(event_id.to_string()))?;
 
         unsafe {
             if let Some(ref title) = request.title {
@@ -442,9 +421,8 @@ impl EventKitBridge {
     /// Delete an event by its identifier.
     pub fn delete_event(&self, event_id: &str) -> Result<(), BridgeError> {
         let ns_id = rust_to_nsstring(event_id);
-        let ek_event =
-            unsafe { self.event_store.eventWithIdentifier(&ns_id) }
-                .ok_or_else(|| BridgeError::EventNotFound(event_id.to_string()))?;
+        let ek_event = unsafe { self.event_store.eventWithIdentifier(&ns_id) }
+            .ok_or_else(|| BridgeError::EventNotFound(event_id.to_string()))?;
 
         unsafe {
             self.event_store
@@ -462,9 +440,7 @@ impl EventKitBridge {
     /// Find a suitable `EKSource` for creating a new calendar.
     ///
     /// Prefers `Local` source; falls back to the default calendar's source.
-    fn find_local_source(
-        &self,
-    ) -> Result<objc2::rc::Retained<EKSource>, BridgeError> {
+    fn find_local_source(&self) -> Result<objc2::rc::Retained<EKSource>, BridgeError> {
         let sources = unsafe { self.event_store.sources() };
         for src in sources.iter() {
             if unsafe { src.sourceType() } == EKSourceType::Local {
@@ -498,10 +474,7 @@ fn nserror_to_string(err: &NSError) -> String {
 }
 
 /// Convert an `EKCalendar` to our Rust [`Calendar`] model.
-fn ekcalendar_to_model(
-    ek_cal: &EKCalendar,
-    default_calendar_id: Option<&str>,
-) -> Calendar {
+fn ekcalendar_to_model(ek_cal: &EKCalendar, default_calendar_id: Option<&str>) -> Calendar {
     let id = unsafe { ek_cal.calendarIdentifier() }.to_string();
     let title = unsafe { ek_cal.title() }.to_string();
     let allows_modifications = unsafe { ek_cal.allowsContentModifications() };
@@ -606,8 +579,10 @@ pub fn hex_to_cgcolor(hex: &str) -> Option<objc2::rc::Retained<CGColor>> {
 pub fn nsdate_to_iso8601(date: &NSDate) -> String {
     let ts = date.timeIntervalSince1970();
     let millis = (ts * 1000.0).round() as i64;
-    let dt: chrono::DateTime<chrono::Utc> =
-        chrono::Utc.timestamp_millis_opt(millis).single().unwrap_or_default();
+    let dt: chrono::DateTime<chrono::Utc> = chrono::Utc
+        .timestamp_millis_opt(millis)
+        .single()
+        .unwrap_or_default();
     dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
@@ -617,9 +592,7 @@ pub fn nsdate_to_iso8601(date: &NSDate) -> String {
 /// - `2025-03-09T10:00:00.000Z`
 /// - `2025-03-09T10:00:00`
 /// - `2025-03-09 10:00:00`
-pub fn iso8601_to_nsdate(
-    s: &str,
-) -> Result<objc2::rc::Retained<NSDate>, BridgeError> {
+pub fn iso8601_to_nsdate(s: &str) -> Result<objc2::rc::Retained<NSDate>, BridgeError> {
     let ts = parse_iso8601_timestamp(s)?;
     Ok(NSDate::dateWithTimeIntervalSince1970(ts))
 }

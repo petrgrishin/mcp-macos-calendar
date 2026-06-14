@@ -27,7 +27,10 @@ impl std::str::FromStr for TransportType {
         match s.to_lowercase().as_str() {
             "stdio" => Ok(TransportType::Stdio),
             "sse" => Ok(TransportType::Sse),
-            _ => Err(format!("unknown transport type: '{}'. Use 'stdio' or 'sse'", s)),
+            _ => Err(format!(
+                "unknown transport type: '{}'. Use 'stdio' or 'sse'",
+                s
+            )),
         }
     }
 }
@@ -82,12 +85,12 @@ impl From<CliArgs> for ServerConfig {
 }
 
 impl ServerConfig {
-    /// Returns the SSE endpoint URL.
+    /// Returns the SSE endpoint URL (legacy SSE transport).
     pub fn sse_endpoint(&self) -> String {
         format!("http://{}:{}/sse", self.host, self.port)
     }
 
-    /// Returns the Streamable HTTP (MCP) endpoint URL.
+    /// Returns the MCP endpoint URL (Streamable HTTP transport).
     pub fn mcp_endpoint(&self) -> String {
         format!("http://{}:{}/mcp", self.host, self.port)
     }
@@ -142,9 +145,15 @@ mod tests {
 
     #[test]
     fn test_S01AC6_transport_type_from_str() {
-        assert_eq!("stdio".parse::<TransportType>().unwrap(), TransportType::Stdio);
+        assert_eq!(
+            "stdio".parse::<TransportType>().unwrap(),
+            TransportType::Stdio
+        );
         assert_eq!("sse".parse::<TransportType>().unwrap(), TransportType::Sse);
-        assert_eq!("STDIO".parse::<TransportType>().unwrap(), TransportType::Stdio);
+        assert_eq!(
+            "STDIO".parse::<TransportType>().unwrap(),
+            TransportType::Stdio
+        );
         assert!("invalid".parse::<TransportType>().is_err());
     }
 
@@ -163,14 +172,9 @@ mod tests {
 
     #[test]
     fn test_S01AC6_server_config_from_cli_args() {
-        let args = CliArgs::try_parse_from([
-            "mcp-macos-calendar",
-            "--transport",
-            "sse",
-            "--port",
-            "3000",
-        ])
-        .unwrap();
+        let args =
+            CliArgs::try_parse_from(["mcp-macos-calendar", "--transport", "sse", "--port", "3000"])
+                .unwrap();
         let config = ServerConfig::from(args);
         assert_eq!(config.transport, TransportType::Sse);
         assert_eq!(config.port, 3000);
@@ -193,7 +197,10 @@ mod tests {
     #[test]
     fn test_S08AC1_read_only_flag_parsed() {
         let args = CliArgs::try_parse_from(["mcp-macos-calendar", "--read-only"]).unwrap();
-        assert!(args.read_only, "read_only should be true when --read-only is passed");
+        assert!(
+            args.read_only,
+            "read_only should be true when --read-only is passed"
+        );
     }
 
     /// S08AC1: read_only передаётся из CliArgs в ServerConfig.

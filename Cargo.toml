@@ -7,7 +7,14 @@ rust-version = "1.80"
 
 [dependencies]
 # MCP SDK
-rust-mcp-sdk = "0.9"
+rmcp = { version = "1", features = [
+    "server",
+    "macros",
+    "transport-io",
+    "transport-streamable-http-server",
+    "schemars",
+    "tower",
+] }
 
 # Objective-C runtime and EventKit bindings
 objc2 = "0.6"
@@ -36,9 +43,22 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Error handling
 thiserror = "2"
+anyhow = "1"
 
-# Async trait
-async-trait = "0.1"
+# JSON Schema (for rmcp tool parameter derive)
+schemars = "1.0"
+
+# HTTP server (for SSE and Streamable HTTP transport)
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# Async utilities
+tokio-util = { version = "0.7", features = ["rt"] }
+tokio-stream = "0.1"
+futures = "0.3"
+
+# UUID generation (for SSE session IDs)
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["blocking"] }

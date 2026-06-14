@@ -1,6 +1,7 @@
 //! MCP macOS Calendar Server
 //!
 //! Entry point for the MCP server providing access to macOS Calendar via EventKit.
+//! Supports stdio and SSE/HTTP transports using the `rmcp` SDK.
 
 mod bridge;
 mod config;
@@ -8,29 +9,31 @@ mod error;
 mod models;
 mod server;
 mod services;
+mod sse_transport;
 mod tools;
 
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use bridge::eventkit::EventKitBridge;
 use clap::Parser;
 use config::{CliArgs, ServerConfig, TransportType};
-use rust_mcp_sdk::error::SdkResult;
-use rust_mcp_sdk::event_store::InMemoryEventStore;
-use rust_mcp_sdk::mcp_server::{hyper_server, server_runtime, HyperServerOptions, McpServerOptions};
-use rust_mcp_sdk::{McpServer, StdioTransport, ToMcpServerHandler, TransportOptions};
-use bridge::eventkit::EventKitBridge;
-use server::{create_server_info, CalendarMcpHandler};
+use rmcp::ServiceExt;
+use server::CalendarMcpHandler;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
-async fn main() -> SdkResult<()> {
+async fn main() -> anyhow::Result<()> {
     let args = CliArgs::parse();
     let config = ServerConfig::from(args);
 
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new(&config.log_level)),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.log_level)),
         )
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
         .init();
 
     if config.read_only {
@@ -55,114 +58,129 @@ fn log_access_denied_instruction() {
     tracing::error!("Enable access for mcp-macos-calendar");
 }
 
-/// Wait for Ctrl+C signal and log shutdown message.
-async fn shutdown_signal() {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to install Ctrl+C handler");
-    tracing::info!("Shutting down...");
+/// Create EventKitBridge and request calendar access.
+/// Returns `Some(bridge)` on success, `None` if access is denied or unavailable.
+fn try_create_bridge() -> Option<EventKitBridge> {
+    let bridge = match EventKitBridge::new() {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("Failed to create EventKit bridge: {}", e);
+            return None;
+        }
+    };
+    tracing::info!("Requesting calendar access...");
+    let granted = match bridge.request_access() {
+        Ok(g) => g,
+        Err(e) => {
+            tracing::warn!("Failed to request calendar access: {}", e);
+            return None;
+        }
+    };
+    if !granted {
+        log_access_denied_instruction();
+        return None;
+    }
+    tracing::info!("Calendar access granted");
+    Some(bridge)
 }
 
 /// Run the MCP server in stdio mode.
-async fn run_stdio(read_only: bool) -> SdkResult<()> {
+async fn run_stdio(read_only: bool) -> anyhow::Result<()> {
     tracing::info!("Using stdio transport");
-    let server_info = create_server_info();
-    let transport = StdioTransport::new(TransportOptions::default())?;
-
-    let bridge = EventKitBridge::new().map_err(|e| {
-        rust_mcp_sdk::schema::RpcError {
-            code: -32603,
-            message: e.to_string(),
-            data: None,
-        }
-    })?;
-    tracing::info!("Requesting calendar access...");
-    let granted = bridge.request_access().map_err(|e| {
-        rust_mcp_sdk::schema::RpcError {
-            code: -32603,
-            message: e.to_string(),
-            data: None,
-        }
-    })?;
-    if !granted {
-        log_access_denied_instruction();
-        return Err(rust_mcp_sdk::schema::RpcError {
-            code: -32603,
-            message: "Calendar access denied".into(),
-            data: None,
-        }.into());
+    let bridge = try_create_bridge();
+    if bridge.is_none() {
+        tracing::warn!(
+            "Calendar bridge not available; tools will return errors until access is granted"
+        );
     }
-    tracing::info!("Calendar access granted");
     let handler = CalendarMcpHandler::with_bridge_and_read_only(bridge, read_only);
-    let server = server_runtime::create_server(McpServerOptions {
-        server_details: server_info,
-        transport,
-        handler: handler.to_mcp_server_handler(),
-        task_store: None,
-        client_task_store: None,
-        message_observer: None,
-    });
-    server.start().await
+    let service = handler
+        .serve(rmcp::transport::stdio())
+        .await
+        .inspect_err(|e| {
+            tracing::error!("serving error: {:?}", e);
+        })?;
+    service.waiting().await?;
+    Ok(())
 }
 
-/// Run the MCP server in SSE/HTTP mode.
-async fn run_sse(config: &ServerConfig) -> SdkResult<()> {
-    tracing::info!(
-        "Using SSE/HTTP transport at {} ({})",
-        config.mcp_endpoint(),
-        config.sse_endpoint(),
-    );
-    let server_info = create_server_info();
+/// Run the MCP server in SSE/HTTP mode with both legacy SSE and Streamable HTTP transports.
+///
+/// - `/sse` (GET) + `/message` (POST) — legacy SSE transport for backwards compatibility
+/// - `/mcp` — Streamable HTTP transport (modern MCP protocol)
+async fn run_sse(config: &ServerConfig) -> anyhow::Result<()> {
+    use rmcp::transport::streamable_http_server::{
+        session::local::LocalSessionManager, StreamableHttpService,
+    };
 
-    let bridge = EventKitBridge::new().map_err(|e| {
-        rust_mcp_sdk::schema::RpcError {
-            code: -32603,
-            message: e.to_string(),
-            data: None,
-        }
-    })?;
-    tracing::info!("Requesting calendar access...");
-    let granted = bridge.request_access().map_err(|e| {
-        rust_mcp_sdk::schema::RpcError {
-            code: -32603,
-            message: e.to_string(),
-            data: None,
-        }
-    })?;
-    if !granted {
-        log_access_denied_instruction();
-        return Err(rust_mcp_sdk::schema::RpcError {
-            code: -32603,
-            message: "Calendar access denied".into(),
-            data: None,
-        }.into());
-    }
-    tracing::info!("Calendar access granted");
-    let handler = CalendarMcpHandler::with_bridge_and_read_only(bridge, config.read_only);
-    let server = hyper_server::create_server(
-        server_info,
-        handler.to_mcp_server_handler(),
-        HyperServerOptions {
-            host: config.host.clone(),
-            port: config.port,
-            event_store: Some(std::sync::Arc::new(InMemoryEventStore::default())),
-            sse_support: true,
-            dns_rebinding_protection: true,
-            allowed_hosts: Some(vec![
-                config.host.clone(),
-                format!("{}:{}", config.host, config.port),
-                "localhost".into(),
-                format!("localhost:{}", config.port),
-            ]),
-            ..Default::default()
-        },
+    tracing::info!(
+        "Using SSE transport at {} and Streamable HTTP at {}",
+        config.sse_endpoint(),
+        config.mcp_endpoint(),
     );
-    tokio::select! {
-        result = server.start() => result,
-        _ = shutdown_signal() => {
-            Ok(())
-        }
+
+    let bridge = try_create_bridge();
+    if bridge.is_none() {
+        tracing::warn!(
+            "Calendar bridge not available; tools will return errors until access is granted"
+        );
     }
+    let bridge_arc: Arc<Mutex<Option<EventKitBridge>>> = Arc::new(Mutex::new(bridge));
+    let read_only = config.read_only;
+
+    // --- Legacy SSE transport at /sse + /message ---
+    let (sse_router, session_rx) = sse_transport::create_sse_router("/sse", "/message");
+
+    let bridge_for_sse = bridge_arc.clone();
+    tokio::spawn(sse_transport::serve_sse_sessions(session_rx, move || {
+        let bridge = bridge_for_sse.clone();
+        CalendarMcpHandler::with_shared_bridge(bridge, read_only)
+    }));
+
+    // --- Streamable HTTP transport at /mcp ---
+    let bridge_for_http = bridge_arc;
+    let streamable_service = StreamableHttpService::new(
+        move || {
+            let bridge = bridge_for_http.clone();
+            Ok(CalendarMcpHandler::with_shared_bridge(bridge, read_only))
+        },
+        LocalSessionManager::default().into(),
+        Default::default(),
+    );
+
+    let router = sse_router
+        .nest_service("/mcp", streamable_service)
+        .layer(tower_http::cors::CorsLayer::permissive());
+    let listener =
+        tokio::net::TcpListener::bind(format!("{}:{}", config.host, config.port)).await?;
+
+    tracing::info!("HTTP server listening on {}:{}", config.host, config.port);
+
+    // Oneshot channel to detect when Ctrl+C fires so the timeout
+    // only starts AFTER the signal, not at server startup.
+    let (shutdown_trigger, shutdown_signal) = tokio::sync::oneshot::channel::<()>();
+
+    let server = axum::serve(listener, router).with_graceful_shutdown(async {
+        tokio::signal::ctrl_c().await.unwrap();
+        tracing::info!("Shutting down...");
+        let _ = shutdown_trigger.send(());
+    });
+
+    tokio::select! {
+        result = server => {
+            if let Err(e) = result {
+                tracing::error!("Server error: {}", e);
+            }
+        }
+        _ = async {
+            // Wait for Ctrl+C to fire first, then start the timeout
+            shutdown_signal.await.ok();
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            tracing::warn!("Graceful shutdown timed out, forcing exit");
+        } => {}
+    }
+
+    std::process::exit(0);
 }
 
 #[cfg(test)]
@@ -231,7 +249,8 @@ mod spec07_tests {
         let config: serde_json::Value = serde_json::from_str(config_str)
             .expect("claude_desktop_config_stdio.json should be valid JSON");
 
-        let servers = config["mcpServers"]["macos-calendar"].as_object()
+        let servers = config["mcpServers"]["macos-calendar"]
+            .as_object()
             .expect("should have macos-calendar server config");
         assert!(
             servers["command"].is_string(),
@@ -250,12 +269,10 @@ mod spec07_tests {
         let config: serde_json::Value = serde_json::from_str(config_str)
             .expect("claude_desktop_config_sse.json should be valid JSON");
 
-        let servers = config["mcpServers"]["macos-calendar"].as_object()
+        let servers = config["mcpServers"]["macos-calendar"]
+            .as_object()
             .expect("should have macos-calendar server config");
-        assert!(
-            servers["url"].is_string(),
-            "should have 'url' field"
-        );
+        assert!(servers["url"].is_string(), "should have 'url' field");
         let url = servers["url"].as_str().unwrap();
         assert!(
             url.contains("127.0.0.1") && url.contains("/sse"),

@@ -28,12 +28,16 @@ impl<'a> CalendarService<'a> {
     pub fn get_calendar(&self, id: &str) -> ServiceResult<Calendar> {
         // R3: validate id is not empty
         if id.trim().is_empty() {
-            return Err(ServiceError::Validation("calendar id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "calendar id must not be empty".to_string(),
+            ));
         }
 
-        self.bridge
-            .find_calendar_by_id(id)?
-            .ok_or_else(|| ServiceError::from(crate::bridge::eventkit::BridgeError::CalendarNotFound(id.to_string())))
+        self.bridge.find_calendar_by_id(id)?.ok_or_else(|| {
+            ServiceError::from(crate::bridge::eventkit::BridgeError::CalendarNotFound(
+                id.to_string(),
+            ))
+        })
     }
 
     /// Creates a new calendar with the given title and optional color.
@@ -41,15 +45,18 @@ impl<'a> CalendarService<'a> {
         // R3: validate title is not empty
         let title = title.trim();
         if title.is_empty() {
-            return Err(ServiceError::Validation("title must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "title must not be empty".to_string(),
+            ));
         }
 
         // R3: validate hex color format if provided
         if let Some(hex) = color {
             if !is_valid_hex_color(hex) {
-                return Err(ServiceError::Validation(
-                    format!("invalid color format: '{}'. Expected #RRGGBB", hex),
-                ));
+                return Err(ServiceError::Validation(format!(
+                    "invalid color format: '{}'. Expected #RRGGBB",
+                    hex
+                )));
             }
         }
 
@@ -60,7 +67,9 @@ impl<'a> CalendarService<'a> {
     pub fn delete_calendar(&self, id: &str) -> ServiceResult<()> {
         // R3: validate id is not empty
         if id.trim().is_empty() {
-            return Err(ServiceError::Validation("calendar id must not be empty".to_string()));
+            return Err(ServiceError::Validation(
+                "calendar id must not be empty".to_string(),
+            ));
         }
 
         Ok(self.bridge.delete_calendar(id)?)
@@ -80,9 +89,11 @@ mod tests {
     use super::*;
 
     /// Helper: create a real EventKitBridge for integration tests.
-    /// Returns None if calendar access is not granted.
+    /// Returns None if calendar access is not granted or not on main thread.
     fn try_create_bridge() -> Option<EventKitBridge> {
-        let bridge = EventKitBridge::new().ok()?;
+        let bridge = std::panic::catch_unwind(|| EventKitBridge::new())
+            .ok()?
+            .ok()?;
         let granted = bridge.request_access().ok()?;
         if granted {
             Some(bridge)
@@ -104,7 +115,11 @@ mod tests {
         let service = CalendarService::new(&bridge);
 
         let result = service.list_calendars();
-        assert!(result.is_ok(), "list_calendars should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "list_calendars should succeed: {:?}",
+            result.err()
+        );
 
         let calendars = result.unwrap();
         // Verify each calendar has required fields
