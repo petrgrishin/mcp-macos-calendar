@@ -14,11 +14,16 @@ fn binary_path() -> PathBuf {
 
 /// Helper to start the server process with given arguments.
 fn start_server(args: &[&str]) -> Child {
-    Command::new(binary_path())
+    let mut command = Command::new(binary_path());
+    command
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::piped())
+        // The coverage run measures the test harnesses. Child server processes
+        // are force-killed by these tests, so inherited LLVM profiles can be
+        // incomplete and trigger llvm-cov "mismatched data" warnings.
+        .env_remove("LLVM_PROFILE_FILE")
         .spawn()
         .expect("Failed to start server process")
 }
