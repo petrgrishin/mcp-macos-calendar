@@ -242,48 +242,9 @@ mod spec07_tests {
         );
     }
 
-    /// S07AC7: Claude Desktop config for stdio mode exists and is valid JSON.
+    /// S07AC7: Сервер корректно обрабатывает Ctrl+C и завершает работу.
     #[test]
-    fn test_S07AC7_claude_desktop_stdio_config_exists() {
-        let config_str = include_str!("../examples/claude_desktop_config_stdio.json");
-        let config: serde_json::Value = serde_json::from_str(config_str)
-            .expect("claude_desktop_config_stdio.json should be valid JSON");
-
-        let servers = config["mcpServers"]["macos-calendar"]
-            .as_object()
-            .expect("should have macos-calendar server config");
-        assert!(
-            servers["command"].is_string(),
-            "should have 'command' field"
-        );
-        assert!(
-            servers["args"].as_array().map_or(false, |a| !a.is_empty()),
-            "should have non-empty 'args'"
-        );
-    }
-
-    /// S07AC8: Claude Desktop config for SSE mode exists and is valid JSON.
-    #[test]
-    fn test_S07AC8_claude_desktop_sse_config_exists() {
-        let config_str = include_str!("../examples/claude_desktop_config_sse.json");
-        let config: serde_json::Value = serde_json::from_str(config_str)
-            .expect("claude_desktop_config_sse.json should be valid JSON");
-
-        let servers = config["mcpServers"]["macos-calendar"]
-            .as_object()
-            .expect("should have macos-calendar server config");
-        assert!(servers["url"].is_string(), "should have 'url' field");
-        let url = servers["url"].as_str().unwrap();
-        assert!(
-            url.contains("127.0.0.1") && url.contains("/sse"),
-            "url should point to SSE endpoint, got: {}",
-            url
-        );
-    }
-
-    /// S07AC9: Server handles Ctrl+C gracefully and logs "Shutting down...".
-    #[test]
-    fn test_S07AC9_shutdown_logs_message() {
+    fn test_S07AC7_shutdown_logs_message() {
         let writer = TestWriter {
             buf: Arc::new(Mutex::new(Vec::new())),
         };

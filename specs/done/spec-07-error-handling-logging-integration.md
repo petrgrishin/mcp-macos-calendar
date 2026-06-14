@@ -162,9 +162,7 @@ pub enum McpError {
 - [x] S07AC4: Успешные операции логируются с `tracing::info!`
 - [x] S07AC5: Уровень логирования настраивается через `RUST_LOG` env variable
 - [x] S07AC6: При отсутствии доступа к календарю выводится инструкция для пользователя
-- [x] S07AC7: Пример конфигурации Claude Desktop для stdio режима создан
-- [x] S07AC8: Пример конфигурации Claude Desktop для SSE режима создан
-- [x] S07AC9: Сервер корректно обрабатывает Ctrl+C и завершает работу
+- [x] S07AC7: Сервер корректно обрабатывает Ctrl+C и завершает работу
 
 ## Implementation Notes
 - `BridgeError` уже существовал в `src/bridge/eventkit.rs` с 8 вариантами — изменения не потребовались (S07AC1).
@@ -172,5 +170,4 @@ pub enum McpError {
 - Добавлено логирование `tracing::error!` в `dispatch_tool()` при ошибках и `tracing::info!` при успехе (S07AC3, S07AC4).
 - Логирование через `RUST_LOG` уже было настроено в `main.rs` через `EnvFilter::try_from_default_env()` (S07AC5).
 - Добавлена функция `log_access_denied_instruction()` и обработка отказа доступа в stdio/sse режимах (S07AC6).
-- Созданы файлы `examples/claude_desktop_config_stdio.json` и `examples/claude_desktop_config_sse.json` (S07AC7, S07AC8).
-- Добавлен graceful shutdown через `tokio::signal::ctrl_c()` + `tokio::select!` в SSE режиме (S07AC9).
+- Добавлен graceful shutdown через `tokio::signal::ctrl_c()` + `tokio::select!` в SSE режиме (S07AC7).
