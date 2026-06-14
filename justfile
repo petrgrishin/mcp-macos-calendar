@@ -25,6 +25,10 @@ test-unit:
 test-integration:
     cargo test --test integration_main
 
+# Generate LLVM coverage report under target/coverage
+coverage *args:
+    ./scripts/coverage.sh {{args}}
+
 # Run the server in stdio mode
 run-stdio:
     cargo run -- --transport stdio
