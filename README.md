@@ -232,6 +232,6 @@ just run-sse
 just lint
 ```
 
-## Repository Status
+## License
 
-This project does not currently include a license file. Add one before publishing if you want others to use, modify, or redistribute the code under explicit terms.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
