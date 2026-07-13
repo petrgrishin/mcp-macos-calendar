@@ -12,7 +12,9 @@ The server can list calendars, read calendar events, and optionally create, upda
 - Legacy SSE endpoints at `/sse` and `/message`.
 - Streamable HTTP endpoint at `/mcp`.
 - Optional read-only mode that hides mutation tools.
+- Optional default-calendar-only mode for read tools.
 - Embedded `Info.plist` calendar usage description for macOS permission prompts.
+- Background UI-agent mode: the server can show the one-time permission prompt without appearing in the Dock.
 
 ## Requirements
 
@@ -58,6 +60,18 @@ Run in read-only mode:
 cargo run -- --transport stdio --read-only
 ```
 
+Expose only the default calendar to read tools:
+
+```bash
+cargo run -- --transport stdio --default-calendar-only
+```
+
+Combine default-calendar selection with read-only mode:
+
+```bash
+cargo run -- --transport stdio --default-calendar-only --read-only
+```
+
 When macOS asks for permission, grant Calendar access in System Settings, Privacy & Security, Calendars.
 
 ## MCP Endpoints
@@ -96,6 +110,32 @@ Read-only stdio configuration:
 }
 ```
 
+Default-calendar-only stdio configuration:
+
+```json
+{
+  "mcpServers": {
+    "macos-calendar": {
+      "command": "/absolute/path/to/mcp-macos-calendar",
+      "args": ["--transport", "stdio", "--default-calendar-only"]
+    }
+  }
+}
+```
+
+Default-calendar-only and read-only stdio configuration:
+
+```json
+{
+  "mcpServers": {
+    "macos-calendar": {
+      "command": "/absolute/path/to/mcp-macos-calendar",
+      "args": ["--transport", "stdio", "--default-calendar-only", "--read-only"]
+    }
+  }
+}
+```
+
 HTTP/SSE configuration:
 
 ```json
@@ -114,8 +154,8 @@ Use the built binary path from `target/release/mcp-macos-calendar`, or install/c
 
 | Tool | Mode | Description |
 | --- | --- | --- |
-| `getCalendars` | read | List available macOS calendars. |
-| `getCalendarEvents` | read | List events from a calendar with optional date filters and pagination. |
+| `getCalendars` | read | List calendars available under the current server mode. |
+| `getCalendarEvents` | read | List events with optional calendar selection, date filters, and pagination. |
 | `createCalendar` | write | Create a new calendar. |
 | `deleteCalendar` | write | Delete a calendar. |
 | `createCalendarEvent` | write | Create an event in a calendar. |
@@ -141,6 +181,19 @@ In `--read-only` mode, only `getCalendars` and `getCalendarEvents` are exposed.
 ```
 
 `start_date`, `end_date`, `limit`, and `offset` are optional. Without dates, the server uses a default window from 30 days before now to 30 days after now. `limit` defaults to 100 and cannot exceed 1000.
+
+When exactly one calendar is available, omit `calendar_id`:
+
+```json
+{
+  "start_date": "2026-06-01T00:00:00",
+  "end_date": "2026-06-30T23:59:59",
+  "limit": 100,
+  "offset": 0
+}
+```
+
+If multiple calendars are available, `calendar_id` is required. With `--default-calendar-only`, `getCalendars` and `getCalendarEvents` see only the calendar whose `is_default` field is `true`.
 
 `createCalendar`:
 

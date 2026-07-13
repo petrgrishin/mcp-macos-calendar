@@ -107,6 +107,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
+    #[ignore = "requires an EventKit test harness running on the macOS main thread"]
     fn test_S05AC1_list_calendars_returns_calendars() {
         let Some(bridge) = try_create_bridge() else {
             eprintln!("SKIP: calendar access not granted, skipping integration test");
@@ -133,6 +134,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
+    #[ignore = "requires an EventKit test harness running on the macOS main thread"]
     fn test_S05AC2_create_calendar_empty_title_returns_validation_error() {
         let Some(bridge) = try_create_bridge() else {
             eprintln!("SKIP: calendar access not granted, skipping integration test");
@@ -159,6 +161,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
+    #[ignore = "requires an EventKit test harness running on the macOS main thread"]
     fn test_S05AC3_delete_calendar_nonexistent_id_returns_not_found() {
         let Some(bridge) = try_create_bridge() else {
             eprintln!("SKIP: calendar access not granted, skipping integration test");

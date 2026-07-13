@@ -60,6 +60,10 @@ pub struct CliArgs {
     /// Run in read-only mode (disable mutation tools)
     #[arg(long, default_value_t = false)]
     pub read_only: bool,
+
+    /// Restrict read tools to the default macOS calendar
+    #[arg(long, default_value_t = false)]
+    pub default_calendar_only: bool,
 }
 
 /// Server configuration derived from CLI arguments.
@@ -70,6 +74,7 @@ pub struct ServerConfig {
     pub host: String,
     pub log_level: String,
     pub read_only: bool,
+    pub default_calendar_only: bool,
 }
 
 impl From<CliArgs> for ServerConfig {
@@ -80,6 +85,7 @@ impl From<CliArgs> for ServerConfig {
             host: args.host,
             log_level: args.log_level,
             read_only: args.read_only,
+            default_calendar_only: args.default_calendar_only,
         }
     }
 }
@@ -165,6 +171,7 @@ mod tests {
             host: "0.0.0.0".to_string(),
             log_level: "debug".to_string(),
             read_only: false,
+            default_calendar_only: false,
         };
         assert_eq!(config.sse_endpoint(), "http://0.0.0.0:3000/sse");
         assert_eq!(config.mcp_endpoint(), "http://0.0.0.0:3000/mcp");
@@ -209,5 +216,30 @@ mod tests {
         let args = CliArgs::try_parse_from(["mcp-macos-calendar", "--read-only"]).unwrap();
         let config = ServerConfig::from(args);
         assert!(config.read_only, "ServerConfig.read_only should be true");
+    }
+
+    #[test]
+    fn test_S10AC1_default_calendar_only_defaults_to_false() {
+        let args = CliArgs::try_parse_from(["mcp-macos-calendar"]).unwrap();
+        assert!(!args.default_calendar_only);
+
+        let config = ServerConfig::from(args);
+        assert!(!config.default_calendar_only);
+    }
+
+    #[test]
+    fn test_S10AC1_default_calendar_only_combines_with_read_only() {
+        let args = CliArgs::try_parse_from([
+            "mcp-macos-calendar",
+            "--default-calendar-only",
+            "--read-only",
+        ])
+        .unwrap();
+        assert!(args.default_calendar_only);
+        assert!(args.read_only);
+
+        let config = ServerConfig::from(args);
+        assert!(config.default_calendar_only);
+        assert!(config.read_only);
     }
 }

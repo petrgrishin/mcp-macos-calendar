@@ -39,6 +39,9 @@ async fn main() -> anyhow::Result<()> {
     if config.read_only {
         tracing::info!("Running in read-only mode");
     }
+    if config.default_calendar_only {
+        log_default_calendar_only_mode();
+    }
 
     tracing::info!(
         "Starting MCP macOS Calendar Server (transport: {})",
@@ -46,9 +49,13 @@ async fn main() -> anyhow::Result<()> {
     );
 
     match config.transport {
-        TransportType::Stdio => run_stdio(config.read_only).await,
+        TransportType::Stdio => run_stdio(config.read_only, config.default_calendar_only).await,
         TransportType::Sse => run_sse(&config).await,
     }
+}
+
+fn log_default_calendar_only_mode() {
+    tracing::info!("Default-calendar-only mode enabled");
 }
 
 /// Log instruction when calendar access is not granted.
@@ -85,7 +92,7 @@ fn try_create_bridge() -> Option<EventKitBridge> {
 }
 
 /// Run the MCP server in stdio mode.
-async fn run_stdio(read_only: bool) -> anyhow::Result<()> {
+async fn run_stdio(read_only: bool, default_calendar_only: bool) -> anyhow::Result<()> {
     tracing::info!("Using stdio transport");
     let bridge = try_create_bridge();
     if bridge.is_none() {
@@ -93,7 +100,8 @@ async fn run_stdio(read_only: bool) -> anyhow::Result<()> {
             "Calendar bridge not available; tools will return errors until access is granted"
         );
     }
-    let handler = CalendarMcpHandler::with_bridge_and_read_only(bridge, read_only);
+    let handler =
+        CalendarMcpHandler::with_bridge_and_options(bridge, read_only, default_calendar_only);
     let service = handler
         .serve(rmcp::transport::stdio())
         .await
@@ -127,6 +135,7 @@ async fn run_sse(config: &ServerConfig) -> anyhow::Result<()> {
     }
     let bridge_arc: Arc<Mutex<Option<EventKitBridge>>> = Arc::new(Mutex::new(bridge));
     let read_only = config.read_only;
+    let default_calendar_only = config.default_calendar_only;
 
     // --- Legacy SSE transport at /sse + /message ---
     let (sse_router, session_rx) = sse_transport::create_sse_router("/sse", "/message");
@@ -134,7 +143,7 @@ async fn run_sse(config: &ServerConfig) -> anyhow::Result<()> {
     let bridge_for_sse = bridge_arc.clone();
     tokio::spawn(sse_transport::serve_sse_sessions(session_rx, move || {
         let bridge = bridge_for_sse.clone();
-        CalendarMcpHandler::with_shared_bridge(bridge, read_only)
+        CalendarMcpHandler::with_shared_bridge(bridge, read_only, default_calendar_only)
     }));
 
     // --- Streamable HTTP transport at /mcp ---
@@ -142,7 +151,11 @@ async fn run_sse(config: &ServerConfig) -> anyhow::Result<()> {
     let streamable_service = StreamableHttpService::new(
         move || {
             let bridge = bridge_for_http.clone();
-            Ok(CalendarMcpHandler::with_shared_bridge(bridge, read_only))
+            Ok(CalendarMcpHandler::with_shared_bridge(
+                bridge,
+                read_only,
+                default_calendar_only,
+            ))
         },
         LocalSessionManager::default().into(),
         Default::default(),
@@ -295,6 +308,30 @@ mod spec07_tests {
             output
         );
     }
+
+    #[test]
+    fn test_S10AC1_default_calendar_only_mode_logs_message() {
+        let writer = TestWriter {
+            buf: Arc::new(Mutex::new(Vec::new())),
+        };
+        let buf = writer.buf.clone();
+
+        let subscriber = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new("info"))
+            .with_writer(writer)
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            super::log_default_calendar_only_mode();
+        });
+
+        let output = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+        assert!(
+            output.contains("Default-calendar-only mode enabled"),
+            "Expected default-calendar-only log message, got: {}",
+            output
+        );
+    }
 }
 
 /// Tests for calendar permission dialog fix (Info.plist + new EventKit API).
@@ -314,6 +351,23 @@ mod permission_fix_tests {
         assert!(
             plist_str.contains("<plist") && plist_str.contains("<dict>"),
             "Info.plist must be a valid XML plist"
+        );
+    }
+
+    /// The server must run as a UI agent so it does not appear in the Dock.
+    #[test]
+    fn test_InfoPlist_runs_as_ui_element() {
+        let plist_str = include_str!("../Info.plist");
+        let eventkit_source = include_str!("bridge/eventkit.rs");
+        assert!(
+            plist_str.contains("<key>LSUIElement</key>")
+                && plist_str.contains("<key>LSUIElement</key>\n    <true/>"),
+            "Info.plist must enable LSUIElement"
+        );
+        assert!(
+            eventkit_source
+                .contains("setActivationPolicy(NSApplicationActivationPolicy::Accessory)"),
+            "NSApplication must use Accessory activation policy"
         );
     }
 

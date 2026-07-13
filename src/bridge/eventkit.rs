@@ -83,19 +83,12 @@ impl EventKitBridge {
         // CLI process has no connection to the Window Server.
         let mtm = objc2::MainThreadMarker::new()
             .expect("EventKitBridge::new() must be called on the main thread");
-        let app = unsafe { NSApplication::sharedApplication(mtm) };
-        // Set activation policy to Regular so the app appears as a regular
-        // (foreground) application. This is required for macOS to show the
-        // system permission dialog.
-        unsafe {
-            app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-            // Force activation even if another app is currently active.
-            // Without this, the permission dialog appears and immediately
-            // closes because the terminal reclaims focus.
-            #[allow(deprecated)]
-            app.activateIgnoringOtherApps(true);
-        }
-        tracing::debug!("NSApplication initialised with Regular activation policy");
+        let app = NSApplication::sharedApplication(mtm);
+        // Run as an accessory application: this keeps the process connected
+        // to the Window Server so macOS can show the calendar permission
+        // dialog, but avoids adding an application icon to the Dock.
+        app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+        tracing::debug!("NSApplication initialised with Accessory activation policy");
 
         let event_store = unsafe { EKEventStore::new() };
         Ok(Self { event_store })
@@ -134,6 +127,16 @@ impl EventKitBridge {
             _ => {
                 // NotDetermined — request access and pump RunLoop while waiting
                 tracing::info!("Requesting calendar access (status: NotDetermined)...");
+
+                // Only take focus when macOS needs to show the one-time
+                // permission dialog. Normal server launches stay in the
+                // background without disrupting the active application.
+                let mtm = objc2::MainThreadMarker::new()
+                    .expect("EventKitBridge::request_access() must be called on the main thread");
+                let app = NSApplication::sharedApplication(mtm);
+                #[allow(deprecated)]
+                app.activateIgnoringOtherApps(true);
+
                 let (sender, receiver) = mpsc::channel();
                 let block = StackBlock::new(move |granted: Bool, _error: *mut NSError| {
                     let _ = sender.send(granted.as_bool());

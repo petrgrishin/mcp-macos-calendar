@@ -20,6 +20,31 @@ pub struct EventService<'a> {
     bridge: &'a EventKitBridge,
 }
 
+/// Narrow adapter used by the list-events service path.
+///
+/// Keeping this boundary separate from EventKit lets the validation and
+/// pagination behavior be tested without macOS Calendar access. The concrete
+/// bridge remains the only production implementation.
+trait EventListBridge {
+    fn fetch_events(
+        &self,
+        calendar_id: &str,
+        start: &str,
+        end: &str,
+    ) -> Result<Vec<Event>, BridgeError>;
+}
+
+impl EventListBridge for EventKitBridge {
+    fn fetch_events(
+        &self,
+        calendar_id: &str,
+        start: &str,
+        end: &str,
+    ) -> Result<Vec<Event>, BridgeError> {
+        EventKitBridge::list_events(self, calendar_id, start, end)
+    }
+}
+
 impl<'a> EventService<'a> {
     /// Creates a new event service backed by the given bridge.
     pub fn new(bridge: &'a EventKitBridge) -> Self {
@@ -35,75 +60,14 @@ impl<'a> EventService<'a> {
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> ServiceResult<EventListResult> {
-        // Validate calendar_id is not empty
-        if calendar_id.trim().is_empty() {
-            return Err(ServiceError::Validation(
-                "calendar_id must not be empty".to_string(),
-            ));
-        }
-
-        // Validate and resolve dates
-        let now = Local::now().naive_utc();
-        let start = match start_date {
-            Some(s) => parse_flexible_date_as_ndt(s)?,
-            None => now - Duration::days(30),
-        };
-        let end = match end_date {
-            Some(s) => parse_flexible_date_as_ndt(s)?,
-            None => now + Duration::days(30),
-        };
-
-        // Validate start < end
-        if start >= end {
-            return Err(ServiceError::Validation(
-                "start_date must be before end_date".to_string(),
-            ));
-        }
-
-        // Validate limit
-        let limit_val = limit.unwrap_or(DEFAULT_LIMIT);
-        if limit_val == 0 {
-            return Err(ServiceError::Validation(
-                "limit must be at least 1".to_string(),
-            ));
-        }
-        if limit_val > MAX_LIMIT {
-            return Err(ServiceError::Validation(
-                "limit must not exceed 1000".to_string(),
-            ));
-        }
-
-        let offset_val = offset.unwrap_or(0);
-
-        let start_str = start.format("%Y-%m-%dT%H:%M:%S").to_string();
-        let end_str = end.format("%Y-%m-%dT%H:%M:%S").to_string();
-
-        let all_events = self.bridge.list_events(calendar_id, &start_str, &end_str)?;
-        let total = all_events.len();
-
-        // Apply pagination
-        let start_idx = offset_val as usize;
-        let end_idx = std::cmp::min(start_idx + limit_val as usize, total);
-
-        let events: Vec<Event> = if start_idx >= total {
-            Vec::new()
-        } else {
-            all_events
-                .into_iter()
-                .skip(start_idx)
-                .take(limit_val as usize)
-                .collect()
-        };
-
-        let has_more = (offset_val as usize + limit_val as usize) < total;
-
-        Ok(EventListResult {
-            events,
-            total,
-            limit: limit_val,
-            offset: offset_val,
-            has_more,
-        })
+        list_events_with_bridge(
+            self.bridge,
+            calendar_id,
+            start_date,
+            end_date,
+            limit,
+            offset,
+        )
     }
 
     /// Get a single event by its identifier, verifying it belongs to the given calendar.
@@ -238,6 +202,75 @@ impl<'a> EventService<'a> {
     }
 }
 
+fn list_events_with_bridge<B: EventListBridge>(
+    bridge: &B,
+    calendar_id: &str,
+    start_date: Option<&str>,
+    end_date: Option<&str>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> ServiceResult<EventListResult> {
+    if calendar_id.trim().is_empty() {
+        return Err(ServiceError::Validation(
+            "calendar_id must not be empty".to_string(),
+        ));
+    }
+
+    let now = Local::now().naive_utc();
+    let start = match start_date {
+        Some(s) => parse_flexible_date_as_ndt(s)?,
+        None => now - Duration::days(30),
+    };
+    let end = match end_date {
+        Some(s) => parse_flexible_date_as_ndt(s)?,
+        None => now + Duration::days(30),
+    };
+
+    if start >= end {
+        return Err(ServiceError::Validation(
+            "start_date must be before end_date".to_string(),
+        ));
+    }
+
+    let limit_val = limit.unwrap_or(DEFAULT_LIMIT);
+    if limit_val == 0 {
+        return Err(ServiceError::Validation(
+            "limit must be at least 1".to_string(),
+        ));
+    }
+    if limit_val > MAX_LIMIT {
+        return Err(ServiceError::Validation(
+            "limit must not exceed 1000".to_string(),
+        ));
+    }
+
+    let offset_val = offset.unwrap_or(0);
+    let start_str = start.format("%Y-%m-%dT%H:%M:%S").to_string();
+    let end_str = end.format("%Y-%m-%dT%H:%M:%S").to_string();
+
+    let all_events = bridge.fetch_events(calendar_id, &start_str, &end_str)?;
+    let total = all_events.len();
+    let start_idx = offset_val as usize;
+    let events = if start_idx >= total {
+        Vec::new()
+    } else {
+        all_events
+            .into_iter()
+            .skip(start_idx)
+            .take(limit_val as usize)
+            .collect()
+    };
+    let has_more = (offset_val as usize + limit_val as usize) < total;
+
+    Ok(EventListResult {
+        events,
+        total,
+        limit: limit_val,
+        offset: offset_val,
+        has_more,
+    })
+}
+
 /// Parse a flexible date string into NaiveDateTime, returning ServiceError on failure.
 fn parse_flexible_date_as_ndt(input: &str) -> ServiceResult<NaiveDateTime> {
     crate::models::parse_flexible_date(input)
@@ -248,7 +281,68 @@ fn parse_flexible_date_as_ndt(input: &str) -> ServiceResult<NaiveDateTime> {
 mod tests {
     #![allow(non_snake_case)]
 
+    use std::cell::RefCell;
+
     use super::*;
+
+    struct FakeEventListBridge {
+        events: Vec<Event>,
+        missing_calendar: bool,
+        calls: RefCell<Vec<(String, String, String)>>,
+    }
+
+    impl FakeEventListBridge {
+        fn returning(events: Vec<Event>) -> Self {
+            Self {
+                events,
+                missing_calendar: false,
+                calls: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn missing_calendar() -> Self {
+            Self {
+                events: Vec::new(),
+                missing_calendar: true,
+                calls: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl EventListBridge for FakeEventListBridge {
+        fn fetch_events(
+            &self,
+            calendar_id: &str,
+            start: &str,
+            end: &str,
+        ) -> Result<Vec<Event>, BridgeError> {
+            self.calls.borrow_mut().push((
+                calendar_id.to_string(),
+                start.to_string(),
+                end.to_string(),
+            ));
+
+            if self.missing_calendar {
+                Err(BridgeError::CalendarNotFound(calendar_id.to_string()))
+            } else {
+                Ok(self.events.clone())
+            }
+        }
+    }
+
+    fn event(index: usize) -> Event {
+        Event {
+            id: format!("event-{index}"),
+            title: format!("Event {index}"),
+            calendar_id: "calendar-1".to_string(),
+            start_date: "2026-07-09T10:00:00.000Z".to_string(),
+            end_date: "2026-07-09T11:00:00.000Z".to_string(),
+            location: None,
+            notes: None,
+            url: None,
+            is_all_day: false,
+        }
+    }
 
     /// Helper: create a real EventKitBridge for integration tests.
     /// Returns None if calendar access is not granted or not on main thread.
@@ -269,6 +363,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
+    #[ignore = "requires an EventKit test harness running on the macOS main thread"]
     fn test_S05AC4_create_event_invalid_date_returns_invalid_date_format() {
         let Some(bridge) = try_create_bridge() else {
             eprintln!("SKIP: calendar access not granted, skipping integration test");
@@ -303,6 +398,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
+    #[ignore = "requires an EventKit test harness running on the macOS main thread"]
     fn test_S05AC5_create_event_start_after_end_returns_error() {
         let Some(bridge) = try_create_bridge() else {
             eprintln!("SKIP: calendar access not granted, skipping integration test");
@@ -333,19 +429,26 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // S05AC6: EventService::list_events() returns events for -30/+365 day range
+    // S05AC6: EventService::list_events() uses the production -30/+30 day range
     // ------------------------------------------------------------------
 
     #[test]
-    fn test_S05AC6_list_events_uses_30_365_day_range() {
-        // This is a unit test: verify the date range calculation logic
-        let now = Local::now().naive_utc();
-        let start = now - Duration::days(30);
-        let end = now + Duration::days(365);
+    fn test_S05AC6_list_events_uses_default_30_30_day_range() {
+        let bridge = FakeEventListBridge::returning(Vec::new());
+        let before = Local::now().naive_utc();
 
-        // Verify the range is correct
-        assert_eq!((now - start).num_days(), 30);
-        assert_eq!((end - now).num_days(), 365);
+        list_events_with_bridge(&bridge, "calendar-1", None, None, None, None).unwrap();
+
+        let after = Local::now().naive_utc();
+        let calls = bridge.calls.borrow();
+        assert_eq!(calls.len(), 1);
+        let start = parse_flexible_date_as_ndt(&calls[0].1).unwrap();
+        let end = parse_flexible_date_as_ndt(&calls[0].2).unwrap();
+
+        assert!(start >= before - Duration::days(30) - Duration::seconds(1));
+        assert!(start <= after - Duration::days(30) + Duration::seconds(1));
+        assert!(end >= before + Duration::days(30) - Duration::seconds(1));
+        assert!(end <= after + Duration::days(30) + Duration::seconds(1));
     }
 
     // ------------------------------------------------------------------
@@ -411,6 +514,102 @@ mod tests {
             "Validation error should contain message: got '{}'",
             msg
         );
+    }
+
+    #[test]
+    fn test_list_events_forwards_calendar_id_and_requested_range_to_bridge() {
+        let bridge = FakeEventListBridge::returning(Vec::new());
+
+        let result = list_events_with_bridge(
+            &bridge,
+            "F59FCAE9-7487-4A38-B36D-DB4C35E127D4",
+            Some("2026-07-09T00:00:00"),
+            Some("2026-07-09T23:59:59"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert!(result.events.is_empty());
+        assert_eq!(result.total, 0);
+        assert_eq!(
+            bridge.calls.into_inner(),
+            vec![(
+                "F59FCAE9-7487-4A38-B36D-DB4C35E127D4".to_string(),
+                "2026-07-09T00:00:00".to_string(),
+                "2026-07-09T23:59:59".to_string(),
+            )]
+        );
+    }
+
+    #[test]
+    fn test_list_events_propagates_bridge_calendar_not_found() {
+        let bridge = FakeEventListBridge::missing_calendar();
+
+        let result = list_events_with_bridge(
+            &bridge,
+            "stale-calendar-id",
+            Some("2026-07-09T00:00:00"),
+            Some("2026-07-09T23:59:59"),
+            None,
+            None,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ServiceError::Bridge(BridgeError::CalendarNotFound(id)))
+                if id == "stale-calendar-id"
+        ));
+        assert_eq!(bridge.calls.borrow().len(), 1);
+    }
+
+    #[test]
+    fn test_list_events_applies_pagination_to_bridge_results() {
+        let bridge = FakeEventListBridge::returning((0..120).map(event).collect());
+
+        let result = list_events_with_bridge(
+            &bridge,
+            "calendar-1",
+            Some("2026-07-01T00:00:00"),
+            Some("2026-08-01T00:00:00"),
+            Some(50),
+            Some(50),
+        )
+        .unwrap();
+
+        assert_eq!(result.total, 120);
+        assert_eq!(result.limit, 50);
+        assert_eq!(result.offset, 50);
+        assert!(result.has_more);
+        assert_eq!(result.events.len(), 50);
+        assert_eq!(result.events.first().unwrap().id, "event-50");
+        assert_eq!(result.events.last().unwrap().id, "event-99");
+    }
+
+    #[test]
+    fn test_list_events_rejects_invalid_limit_before_bridge_call() {
+        let bridge = FakeEventListBridge::returning(Vec::new());
+
+        let zero = list_events_with_bridge(
+            &bridge,
+            "calendar-1",
+            Some("2026-07-09T00:00:00"),
+            Some("2026-07-09T23:59:59"),
+            Some(0),
+            None,
+        );
+        let too_large = list_events_with_bridge(
+            &bridge,
+            "calendar-1",
+            Some("2026-07-09T00:00:00"),
+            Some("2026-07-09T23:59:59"),
+            Some(1001),
+            None,
+        );
+
+        assert!(matches!(zero, Err(ServiceError::Validation(_))));
+        assert!(matches!(too_large, Err(ServiceError::Validation(_))));
+        assert!(bridge.calls.borrow().is_empty());
     }
 
     // ==================================================================
@@ -488,7 +687,7 @@ mod tests {
     /// S09AC14: EventListResult contains total, limit, offset, has_more fields.
     #[test]
     fn test_S09AC14_event_list_result_has_pagination_fields() {
-        use crate::models::{Event, EventListResult};
+        use crate::models::EventListResult;
 
         let result = EventListResult {
             events: vec![],
